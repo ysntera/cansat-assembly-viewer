@@ -1,0 +1,133 @@
+[
+  {
+    "id": "tire_left",
+    "file": "Tire&Motor Left.stl",
+    "name": "タイヤ＋モータ（x＜0側）",
+    "count": 1,
+    "material": "タイヤ：TPU（3Dプリント）、モータ：金属（購入品）",
+    "color": "#2f6fd6",
+    "split": { "axis": "y", "below": -13.8, "color": "#9aa0a6", "label": "モータ" },
+    "role": "走るための車輪。TPU（ゴムのように柔らかい樹脂）でできていて、砂地でのグリップと着地の衝撃をやわらげる。ホイールと外周は一体で印刷し、走行中に外れないようにしている。",
+    "provisional": "左右の呼び名は未確定（ファイル名の Left は、前から見ると右手側にあたる）"
+  },
+  {
+    "id": "tire_right",
+    "file": "Tire&Motor Right.stl",
+    "name": "タイヤ＋モータ（x＞0側）",
+    "count": 1,
+    "material": "タイヤ：TPU（3Dプリント）、モータ：金属（購入品）",
+    "color": "#2f6fd6",
+    "split": { "axis": "y", "below": -23.8, "color": "#9aa0a6", "label": "モータ" },
+    "role": "走るための車輪。TPU（ゴムのように柔らかい樹脂）でできていて、砂地でのグリップと着地の衝撃をやわらげる。ホイールと外周は一体で印刷し、走行中に外れないようにしている。",
+    "provisional": "左右の呼び名は未確定（ファイル名の Right は、前から見ると左手側にあたる）"
+  },
+  {
+    "id": "shaftholder",
+    "file": "Shaftholder.stl",
+    "name": "シャフトホルダ",
+    "count": 2,
+    "material": "金属（Pololu製の購入品）",
+    "color": "#9aa0a6",
+    "role": "モータの軸とタイヤをつなぐ部品。モータと同じメーカーの製品にして、走行中に外れにくくした。"
+  },
+  {
+    "id": "motorcover",
+    "file": "MotorCover.stl",
+    "name": "モータカバー",
+    "count": 2,
+    "material": "ABS（3Dプリント）",
+    "color": "#d9c7a3",
+    "role": "モータを包んで、2nd layer に固定する部品。"
+  },
+  {
+    "id": "layer2",
+    "file": "2nd layer.stl",
+    "name": "2nd layer（下のトラス板）",
+    "count": 1,
+    "material": "ABS（3Dプリント）",
+    "color": "#2b3a67",
+    "role": "本体の土台。三角形の肉抜き（トラス構造：三角形の穴をたくさん開けた形で、軽いのに曲がりにくい）にしている。上にPCDU、下にモータカバーとバッテリホルダが付く。"
+  },
+  {
+    "id": "batteryholder",
+    "file": "Batteryholderv3.stl",
+    "name": "バッテリホルダ",
+    "count": 1,
+    "material": "ABS（3Dプリント）",
+    "color": "#2b3a67",
+    "role": "バッテリを入れる箱。一番重いバッテリを一番下に置いて重心を下げ、転倒しにくくする。"
+  },
+  {
+    "id": "battery",
+    "file": "battery.stl",
+    "name": "バッテリ",
+    "count": 1,
+    "material": "（購入品）",
+    "color": "#222222",
+    "role": "電源。",
+    "provisional": "形だけの仮モデル（直方体）。バッテリホルダの中央に仮置きしている"
+  },
+  {
+    "id": "stabiholder",
+    "file": "Stabiholder.stl",
+    "name": "スタビライザホルダ",
+    "count": 1,
+    "material": "ABS（3Dプリント）",
+    "color": "#2b3a67",
+    "role": "スタビライザ（機体の後ろに伸びる尾）を機体の後ろに取り付ける台。"
+  },
+  {
+    "id": "pcdu",
+    "file": "ARS_PCDU_V2.stl",
+    "name": "PCDU（メイン基板）",
+    "count": 1,
+    "material": "プリント基板",
+    "color": "#2e8b57",
+    "role": "電源の分配と制御を行う基板（PCDU：Power Control and Distribution Unit）。マイコン（Raspberry Pi Pico 2）・センサ類・モータドライバが載る。"
+  },
+  {
+    "id": "camera",
+    "file": "CameraBoard.stl",
+    "name": "カメラ基板",
+    "count": 1,
+    "material": "プリント基板",
+    "color": "#2e8b57",
+    "role": "機体の前に縦向きに付き、前方のゴール（赤いコーン）を見つける。"
+  },
+  {
+    "id": "spacer",
+    "file": "spacer_25mm.stl",
+    "name": "スペーサー（25mm）",
+    "count": 4,
+    "material": "ABS（3Dプリント）",
+    "color": "#8a8f98",
+    "role": "2nd layer と 1st layer の間に立てる柱。以前は板と一体で印刷していたが、着地の衝撃で折れたため別部品にした。"
+  },
+  {
+    "id": "layer1",
+    "file": "1st layer.stl",
+    "name": "1st layer（上のトラス板）",
+    "count": 1,
+    "material": "ABS（3Dプリント）",
+    "color": "#2b3a67",
+    "role": "本体の天井。上にGNSS基板と無線機基板が載る。テグス（釣り糸）を焼き切るためのニクロム線もこの板に付く。"
+  },
+  {
+    "id": "gnss",
+    "file": "GNSSBoard.stl",
+    "name": "GNSS基板",
+    "count": 1,
+    "material": "プリント基板",
+    "color": "#2e8b57",
+    "role": "位置を測る（GNSS：GPSなど人工衛星を使った測位の総称）。空がよく見える一番上に置く。"
+  },
+  {
+    "id": "radio",
+    "file": "IM920slBoard.stl",
+    "name": "無線機（IM920sL）基板",
+    "count": 1,
+    "material": "プリント基板",
+    "color": "#2e8b57",
+    "role": "地上局と通信する。"
+  }
+]

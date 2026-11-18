@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CanSat 組立ビューア</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Three.js をバージョン固定で CDN から読み込む（ビルドツールは使わない） -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>CanSat 組立ビューア</h1>
+    <!-- モード切り替え -->
+    <nav class="modes">
+      <button class="mode active" data-mode="assembly">組み立て</button>
+      <button class="mode" data-mode="parts">部品を見る</button>
+      <button class="mode" data-mode="mission">ミッション</button>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <section class="viewport" id="viewport">
+      <!-- 読み込み中の表示 -->
+      <div class="loading" id="loading">
+        <p id="loading_text">読み込み中…</p>
+        <div class="bar"><div class="bar_fill" id="loading_bar"></div></div>
+        <ul class="errors" id="loading_errors"></ul>
+      </div>
+      <!-- マウスを乗せた部品の名前 -->
+      <div class="tooltip hidden" id="tooltip"></div>
+      <p class="hint" id="hint"></p>
+    </section>
+
+    <aside class="panel" id="panel">
+      <!-- ===== 組み立てモード：いまの手順の説明 ===== -->
+      <div id="panel_assembly">
+        <p class="step_counter" id="step_counter"></p>
+        <h2 id="step_title"></h2>
+        <p id="step_text"></p>
+        <p class="step_note hidden" id="step_note"></p>
+        <dl class="detail_specs" id="step_specs">
+          <dt>固定</dt><dd id="step_fastening"></dd>
+        </dl>
+        <p class="tip hidden" id="step_tip"></p>
+        <p class="provisional hidden" id="step_provisional"></p>
+        <div class="photos" id="step_photos"></div>
+
+        <h3>手順の一覧</h3>
+        <ol class="step_list" id="step_list"></ol>
+      </div>
+
+      <!-- ===== ミッションモード：いまのフェーズの説明 ===== -->
+      <div id="panel_mission" class="hidden">
+        <p class="step_counter" id="phase_counter"></p>
+        <h2 id="phase_title"></h2>
+        <p id="phase_text"></p>
+
+        <!-- 走行フェーズだけ：機体を動かすボタン（スマホでもすぐ押せるよう、説明文のすぐ下に置く） -->
+        <div class="drive_controls hidden" id="drive_controls">
+          <div class="drive_buttons">
+            <button data-move="left">↰ 左旋回</button>
+            <button data-move="forward">↑ 前進</button>
+            <button data-move="right">↱ 右旋回</button>
+            <button data-move="stop">■ 止める</button>
+          </div>
+          <p class="note" id="drive_status"></p>
+          <button class="link_button" id="btn_drive_reset">スタート位置に戻す</button>
+        </div>
+
+        <p class="mechanism hidden" id="phase_detail"></p>
+        <p class="provisional hidden" id="phase_provisional"></p>
+        <button class="link_button" id="btn_replay_phase">↻ このフェーズをもう一度見る</button>
+
+        <h3>フェーズの一覧</h3>
+        <ol class="step_list" id="phase_list"></ol>
+      </div>
+
+      <!-- ===== 部品を見るモード ===== -->
+      <div id="panel_parts" class="hidden">
+        <!-- 何も選んでいないとき：部品の一覧 -->
+        <div id="panel_overview">
+          <h2>部品を見る</h2>
+          <p>部品をクリック（タップ）すると、名前・役割・材質が表示されます。下の一覧から選ぶこともできます。</p>
+          <h3>部品の一覧</h3>
+          <ul class="legend" id="legend"></ul>
+          <p class="note">「仮」と付いた部品は、形や位置がまだ確定していません。</p>
+        </div>
+
+        <!-- 部品を選んだとき：その部品の説明 -->
+        <div id="panel_detail" class="hidden">
+          <button class="link_button" id="btn_back_to_list">← 部品の一覧に戻る</button>
+          <h2 class="detail_title">
+            <span class="chip" id="detail_chip"></span>
+            <span id="detail_name"></span>
+          </h2>
+          <p id="detail_role"></p>
+          <dl class="detail_specs">
+            <dt>材質</dt><dd id="detail_material"></dd>
+            <dt>個数</dt><dd id="detail_count"></dd>
+          </dl>
+          <p class="provisional hidden" id="detail_provisional"></p>
+          <button class="toggle" id="btn_isolate" aria-pressed="false">この部品だけ表示</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="bottombar">
+    <!-- ===== 組み立てモードの操作 ===== -->
+    <div class="bar_group" id="bar_assembly">
+      <button id="btn_prev_step">◀ 前へ</button>
+      <div class="step_dots" id="step_dots"></div>
+      <button id="btn_next_step">次へ ▶</button>
+      <span class="spacer_flex"></span>
+      <button id="btn_step_view">おすすめの視点に戻す</button>
+    </div>
+
+    <!-- ===== ミッションモードの操作 ===== -->
+    <div class="bar_group hidden" id="bar_mission">
+      <button id="btn_prev_phase">◀ 前へ</button>
+      <div class="step_dots" id="phase_dots"></div>
+      <button id="btn_next_phase">次へ ▶</button>
+      <button class="primary" id="btn_autoplay" aria-pressed="false">▶ 自動再生</button>
+      <span class="spacer_flex"></span>
+      <button id="btn_phase_view">おすすめの視点に戻す</button>
+    </div>
+
+    <!-- ===== 部品を見るモードの操作 ===== -->
+    <div class="bar_group hidden" id="bar_parts">
+      <label class="control">
+        分解
+        <input type="range" id="explode_slider" min="0" max="100" value="0" aria-label="分解表示の量">
+      </label>
+      <label class="control">
+        <input type="checkbox" id="translucent_check">
+        半透明にする
+      </label>
+      <span class="spacer_flex"></span>
+      <button id="btn_reset_view">視点を戻す</button>
+    </div>
+  </footer>
+
+  <!-- 写真を大きく見る画面（クリックで閉じる） -->
+  <div class="lightbox hidden" id="lightbox" role="dialog" aria-label="写真の拡大表示">
+    <img id="lightbox_img" alt="">
+    <p>クリック（タップ）または Esc キーで閉じる</p>
+  </div>
+
+  <!-- index.html をダブルクリックで開いた（file://）ときは、ブラウザが main.js そのものを
+       読み込まないので、ここ（main.js とは別の、ふつうのスクリプト）で知らせる -->
+  <script>
+    if (location.protocol === "file:") {
+      document.getElementById("loading_text").textContent = "このままでは表示できません";
+      const item = document.createElement("li");
+      item.textContent = "index.html を直接開くと、部品やデータを読み込めません。"
+        + "README.md の「1. 開き方」のとおり、py -m http.server 8000 を動かしてから "
+        + "http://localhost:8000 を開いてください。";
+      document.getElementById("loading_errors").appendChild(item);
+    }
+  </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

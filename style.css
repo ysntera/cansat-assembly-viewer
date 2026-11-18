@@ -1,0 +1,350 @@
+/* ===== 色・大きさの共通設定 ===== */
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #1d2330;
+  --muted: #5d6675;
+  --line: #d9dde3;
+  --accent: #2f6fd6;
+  --warn: #b5560b;
+  --error: #c62828;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 上の帯（タイトルとモード切り替え） ===== */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.topbar h1 { font-size: 18px; margin: 0; }
+.modes { display: flex; gap: 6px; }
+.mode {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+}
+.mode.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mode:disabled { color: #aab0ba; }
+
+/* ===== 3Dビューと説明欄 ===== */
+.layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.viewport canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.hint {
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.panel {
+  width: 320px;
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.panel h2 { font-size: 17px; margin: 0 0 8px; }
+.panel h3 { font-size: 15px; margin: 16px 0 6px; }
+.legend { list-style: none; margin: 0; padding: 0; }
+.legend li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.chip {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+.tag_provisional {
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #fde7d4;
+  color: var(--warn);
+}
+.note { font-size: 12px; color: var(--muted); }
+
+/* 部品の一覧（クリックで選べるボタン） */
+.legend button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.legend button:hover { background: #eef3fc; }
+
+/* 部品の説明 */
+.hidden { display: none !important; }
+.link_button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.detail_title { display: flex; align-items: center; gap: 8px; margin-top: 12px !important; }
+.detail_specs {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 12px 0;
+}
+.detail_specs dt { color: var(--muted); }
+.detail_specs dd { margin: 0; }
+.provisional {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fdf1e6;
+  color: var(--warn);
+  font-size: 13px;
+}
+.toggle {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+}
+.toggle[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+/* マウスを乗せた部品の名前 */
+.tooltip {
+  position: absolute;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(29, 35, 48, 0.85);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(12px, 12px);
+  z-index: 2;
+}
+
+/* ===== 下の帯（操作ボタン） ===== */
+.bottombar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.bar_group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  width: 100%;
+}
+.bottombar button:disabled { color: #aab0ba; cursor: default; border-color: var(--line); }
+/* 自分で視点を動かしたあとは、「おすすめの視点に戻す」を目立たせる */
+.bottombar button.attention { border-color: var(--accent); color: var(--accent); }
+.control { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* ===== 組み立てモード ===== */
+.step_counter { margin: 0; color: var(--muted); font-size: 13px; }
+.step_note {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #eef3fc;
+  font-size: 13px;
+}
+.tip {
+  padding: 8px 10px;
+  border-left: 4px solid #2e8b57;
+  background: #edf7f1;
+  font-size: 13px;
+}
+.tip::before { content: "豆知識　"; font-weight: bold; color: #2e8b57; }
+.photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.photos button {
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.photos img { display: block; width: 136px; height: 80px; object-fit: contain; }
+.photos .no_photo { margin: 0; font-size: 12px; color: var(--muted); }
+
+.step_list { margin: 0; padding: 0; list-style: none; }
+.step_list button {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.step_list button:hover { background: #eef3fc; }
+.step_list button[aria-current="step"] { background: var(--accent); color: #fff; }
+
+.step_dots { display: flex; flex-wrap: wrap; gap: 4px; }
+.bottombar .step_dots button {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--panel);
+}
+.bottombar .step_dots button.done { background: #a9c2ee; }
+.bottombar .step_dots button[aria-current="step"] { background: var(--accent); }
+
+/* ===== ミッションモード ===== */
+.mechanism {
+  padding: 8px 10px;
+  border-left: 4px solid var(--accent);
+  background: #eef3fc;
+  font-size: 13px;
+}
+.mechanism::before { content: "しくみ　"; font-weight: bold; color: var(--accent); }
+.bottombar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.bottombar button.primary[aria-pressed="true"] { background: #fff; color: var(--accent); }
+.drive_buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.drive_buttons button {
+  padding: 8px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+}
+.drive_buttons button[data-move="stop"] { grid-column: 1 / -1; }
+.drive_buttons button.active { background: var(--accent); color: #fff; }
+
+/* 写真の拡大表示 */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 13px;
+  z-index: 10;
+  cursor: zoom-out;
+}
+.lightbox img { max-width: 100%; max-height: 85vh; background: #fff; border-radius: 6px; }
+.control input[type="range"] { width: 160px; }
+.spacer_flex { flex: 1; }
+.bottombar button {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 14px;
+  cursor: pointer;
+}
+.bottombar button:hover { border-color: var(--accent); }
+
+/* ===== 読み込み中の表示 ===== */
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(244, 245, 247, 0.92);
+  z-index: 1;
+}
+.loading.hidden { display: none; }
+.bar { width: 240px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar_fill { width: 0; height: 100%; background: var(--accent); transition: width 0.2s; }
+.errors { color: var(--error); font-size: 13px; max-width: 90%; }
+
+/* ===== スマホ（幅が狭いとき）：3Dビューを上、説明を下に ===== */
+@media (max-width: 720px) {
+  /* スマホのブラウザは、アドレスバーの出し入れで画面の高さが変わる。
+     dvh（そのときに見えている高さ）を使い、対応していないブラウザでは % のまま */
+  body { height: 100dvh; }
+  .topbar { flex-wrap: wrap; gap: 6px; padding: 6px 12px; }
+  .topbar h1 { font-size: 16px; }
+  .modes { width: 100%; }
+  .mode { flex: 1; padding: 6px 4px; }   /* 3つのボタンで横幅を等分する */
+
+  .layout { flex-direction: column; }
+  .viewport { flex: none; height: 46vh; height: 46dvh; }
+  /* 説明欄は残りの高さに収め、中だけをスクロールさせる */
+  .panel {
+    flex: 1;
+    min-height: 0;
+    width: auto;
+    padding: 12px 16px;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+  .hint { right: 8px; font-size: 11px; }
+
+  .bottombar { padding: 6px 12px; }
+  .bar_group { gap: 6px 10px; }
+  .control input[type="range"] { width: 120px; }
+  .photos img { width: 120px; height: 72px; }
+}

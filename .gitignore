@@ -1,0 +1,6 @@
+# Gitに登録しないファイル
+# OS・エディタが自動で作るもの
+desktop.ini
+Thumbs.db
+.DS_Store
+.vscode/
