@@ -2,7 +2,7 @@
 
 ARLISS向けCanSat（2輪ローバー型）の **組み立て手順・部品の役割・機構の動き** を、ブラウザの3Dで学ぶためのページです。
 
-**▶ 公開ページ：https://ysntera.github.io/cansat-assembly-viewer/**（インストール不要。リンクを開くだけで、PC・スマホで見られます）
+**▶ 公開ページ：[https://ysntera.github.io/cansat-assembly-viewer/](https://ysntera.github.io/cansat-assembly-viewer/)**（インストール不要。リンクを開くだけで、PC・スマホで見られます）
 
 設計の考え方は、チーム内の資料「CanSat 3D組立・機構ビューア 設計書」（`CanSat/設計・試験/`）にまとめています。
 
