@@ -2,7 +2,7 @@
 
 ARLISS向けCanSat（2輪ローバー型）の **組み立て手順・部品の役割・機構の動き** を、ブラウザの3Dで学ぶためのページです。
 
-**▶ 公開ページ：https://ysntera.github.io/cansat-assembly-viewer/**（インストール不要。リンクを開くだけで、PC・スマホで見られます）
+**▶ 公開ページ：[https://ysntera.github.io/cansat-assembly-viewer/](https://ysntera.github.io/cansat-assembly-viewer/)**（インストール不要。リンクを開くだけで、PC・スマホで見られます）
 
 設計の考え方は、チーム内の資料「CanSat 3D組立・機構ビューア 設計書」（`CanSat/設計・試験/`）にまとめています。
 
@@ -11,6 +11,12 @@ ARLISS向けCanSat（2輪ローバー型）の **組み立て手順・部品の�
 | 組み立て | 手順1〜8を1つずつ進める。部品が取り付け方向から飛んできて収まる。手順ごとに説明・写真が出る |
 | 部品を見る | 部品をクリック（タップ）すると、名前・役割・材質・個数が出る。分解表示・半透明・この部品だけ表示 |
 | ミッション | 収納 → 放出 → 開傘・降下 → 着地 → エンベロープ分離 → スタビライザ展開 → 走行 の7フェーズを再生。走行はボタンで動かせる |
+
+### 使い方の動画（約2分・字幕つき）
+
+https://github.com/user-attachments/assets/b2b5b8fa-b77b-46c2-a198-acbbea758981
+
+上で再生できないときは、[こちら（動画ファイル）](https://ysntera.github.io/cansat-assembly-viewer/media/guide.mp4) から見られます。
 
 ---
 
@@ -74,6 +80,7 @@ py -m http.server 8000
 │   └── mission.json    … ミッションの流れ・仮の形の寸法
 ├── models/             … 部品のSTL（CAD/ からコピーしたもの）
 ├── photos/             … 組み立て写真（CAD/ からコピーしたもの）
+├── media/guide.mp4     … 使い方の動画（README に載せている動画と同じもの）
 └── README.md           … この説明
 ```
 
