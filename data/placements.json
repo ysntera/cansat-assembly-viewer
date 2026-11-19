@@ -645,5 +645,19 @@
       -21.47
     ],
     "method": "バッテリホルダの位置から決めた（仮モデル・全体STLに入っていない）"
+  },
+  {
+    "name": "XiaoESP32S3Sense",
+    "file": "XiaoESP32S3Sense.stl",
+    "rotation": [
+      [1.0, 0.0, 0.0],
+      [0.0, 1.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "translation": [0.0, 0.0, 0.0],
+    "inlier_ratio": null,
+    "mean_error_mm": null,
+    "centre": [2.1, -50.97, 15.5],
+    "method": "簡易モデル（tools/make_xiao_camera_stl.py が組み上がった位置で作る。カメラ基板の前の面に置いた）"
   }
 ]
