@@ -92,7 +92,17 @@
     "count": 1,
     "material": "プリント基板",
     "color": "#2e8b57",
-    "role": "機体の前に縦向きに付き、前方のゴール（赤いコーン）を見つける。"
+    "role": "機体の前に縦向きに付く基板。カメラ付きのマイコン（XIAO ESP32S3 Sense）を差し込む。"
+  },
+  {
+    "id": "camera_module",
+    "file": "XiaoESP32S3Sense.stl",
+    "name": "カメラ（XIAO ESP32S3 Sense）",
+    "count": 1,
+    "material": "購入品（Seeed Studio XIAO ESP32S3 Sense）",
+    "color": "#3a3f47",
+    "role": "カメラ付きの小さなマイコン。カメラ基板に差し込み、レンズを機体の前に向ける。ゴールまで3m以内に近づいたら、カメラでゴール（赤いコーン）を見つけて向かう。",
+    "provisional": "箱と円柱で作った簡易モデル。外形21×17.8mm・厚み15mmは公式の値、カメラの大きさ・レンズの出っ張りは写真から見積もった目安"
   },
   {
     "id": "spacer",
