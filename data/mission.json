@@ -60,8 +60,28 @@
     },
     {
       "id": "7",
+      "action": "gnss_guidance",
+      "title": "GNSS誘導",
+      "duration_s": 1,
+      "text": "GNSS（人工衛星を使って位置を測る仕組み）で自分の位置を測り、ゴールの方向へ自動で走ります。ゴールまで3m以内に入ったら、カメラ誘導に切り替えます。",
+      "detail": "GNSSで測った位置には誤差（ずれ）があります。遠くではGNSSでゴールに近づき、近くではカメラでゴールのコーンを探して向かう、という2段階にしています。紫の丸は「GNSSで測った自分の位置」、点線の円は「ゴールから3m」の範囲です。",
+      "provisional": "スタートからゴールまでの距離と向き、位置のずれ方は仮です。画面では実際より速く走らせています",
+      "camera": { "offset": [2600, 3200, 3600], "look": [700, -2600, 0] }
+    },
+    {
+      "id": "8",
+      "action": "camera_guidance",
+      "title": "カメラ誘導",
+      "duration_s": 1,
+      "text": "ゴールまで3m以内に入ったら、機体の前に付けたカメラでゴールの赤いコーンを探します。見つけたら、コーンが画面の真ん中に来るように向きを直しながら近づき、機体の前面がコーンに触れたらゴールです。",
+      "detail": "カメラ：XIAO ESP32S3 Sense（カメラ付きの小さなマイコン）。カメラ基板に差し込み、レンズを機体の前に向けています。扇形は、カメラに見えている範囲です。コーンを見つけると緑に変わります。",
+      "provisional": "カメラに見える範囲（扇形の角度と距離）、コーンの大きさは仮です。画面では実際より速く走らせています",
+      "camera": { "offset": [1100, 1500, 1500], "look": [150, -1300, 0] }
+    },
+    {
+      "id": "9",
       "action": "drive",
-      "title": "走行",
+      "title": "走らせてみる",
       "duration_s": 1,
       "text": "左右のモータでタイヤを回して走ります。左右の回転の速さを変えると曲がります。下のボタンで動かしてみましょう。",
       "detail": "モータ：Pololu製 25Dサイズ、ギア比75:1（型番3230）、無負荷で毎分100回転。モータの軸を、シャフトホルダでタイヤに直結しています。",
@@ -93,5 +113,20 @@
     "stabilizer": { "width": 20, "length": 120, "anchor": [0, 63, -13], "start_angle_deg": -20, "color": "#d9b310" }
   },
 
-  "drive": { "speed_mm_s": 80, "turn_inner_ratio": 0.3, "wheel_radius_mm": 81, "track_mm": 175 }
+  "drive": { "speed_mm_s": 80, "turn_inner_ratio": 0.3, "wheel_radius_mm": 81, "track_mm": 175 },
+
+  "guidance": {
+    "goal": [1800, -6200],
+    "switch_distance_mm": 3000,
+    "display_speed_mm_s": 700,
+    "gnss_update_s": 0.5,
+    "gnss_error_mm": 450,
+    "heading_tolerance_deg": 10,
+    "turn_inner_ratio": 0.7,
+    "camera_fov_deg": 60,
+    "camera_range_mm": 3500,
+    "camera_start_heading_deg": 40,
+    "cone": { "radius": 150, "height": 450, "color": "#ff4d1a" },
+    "area_size_mm": 12000
+  }
 }

@@ -161,6 +161,7 @@ const phase_list_el = $("phase_list");
 const phase_dots_el = $("phase_dots");
 const drive_controls_el = $("drive_controls");
 const drive_status_el = $("drive_status");
+const guidance_status_el = $("guidance_status");
 const btn_prev_phase_el = $("btn_prev_phase");
 const btn_next_phase_el = $("btn_next_phase");
 const btn_autoplay_el = $("btn_autoplay");
@@ -191,7 +192,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 viewport_el.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xeef1f5);
+scene.background = new THREE.Color(0xeef2f7);   // 3Dの背景（style.css の --bg と同じ色）
 
 const camera = new THREE.PerspectiveCamera(CAMERA_FOV_DEG, 1, 1, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -979,6 +980,14 @@ const mission = {
     wheel_xneg: 0,         // x＜0 側のタイヤの回転角
     wheel_xpos: 0,         // x＞0 側のタイヤの回転角
   },
+  // GNSS誘導・カメラ誘導（自動で走るフェーズ）の状態
+  guidance: {
+    done: false,           // このフェーズの目的を達成したか（GNSS：3m以内に入った／カメラ：ゴールに着いた）
+    estimate: new THREE.Vector2(),   // GNSSで測った自分の位置（ずれを含む）
+    estimate_timer: 0,     // 次にGNSSで位置を測るまでの時間
+    random_seed: 1,        // 位置のずれを作る疑似乱数の種（毎回同じ動きになるように）
+    cone_found: false,     // カメラにコーンが見えているか
+  },
 };
 
 // 0〜1 の値を、a〜b の間だけなめらかに 0→1 に変える（範囲の外では 0 か 1）
@@ -1081,12 +1090,99 @@ function build_mission_props(data) {
   vehicle.add(props.stabi_ribbon, props.stabi_coil);
   mission.stabi_curvature = solve_stabilizer_curvature(stabi);
 
+  // ----- GNSS誘導・カメラ誘導で使うもの（ゴールのコーンなど）
+  build_guidance_props(data.guidance, props);
+
   props.all = [
     props.carrier, props.envelope_front, props.envelope_back, props.canopy, props.chute_lines,
     ...props.nichromes, props.tegus, props.stabi_ribbon, props.stabi_coil,
+    props.goal_group, props.area_grid, props.estimate_marker, props.camera_fan,
   ];
   for (const object of props.all) object.visible = false;
   return props;
+}
+
+// ---------------------------------------------------------------
+// GNSS誘導・カメラ誘導で使うものを作る（寸法・位置は mission.json の guidance から読む）
+//   ゴール側のもの（コーン・3mの円・広い格子・GNSSの位置の印）は地面に置くので model_root に、
+//   カメラの扇形は機体と一緒に動くので vehicle に入れる（どちらもCAD座標：z が上、−y が前）
+// ---------------------------------------------------------------
+const GUIDANCE_RING_DASH_MM = 160;      // 3mの円の点線の、線の長さ
+const GUIDANCE_RING_SEGMENTS = 160;     // 3mの円をいくつの直線で近似するか
+const GUIDANCE_GRID_STEP_MM = 1000;     // 広い格子の間隔（1m）
+const ESTIMATE_MARKER_RADIUS_MM = 120;  // GNSSで測った位置の印の大きさ
+const ESTIMATE_MARKER_COLOR = 0x7b4dff; // GNSSで測った位置の印の色（紫）
+const CAMERA_FAN_COLOR_SEARCH = 0x8aa4c8;   // コーンが見えていないときの扇形の色
+const CAMERA_FAN_COLOR_FOUND = 0x2e8b57;    // コーンが見えているときの扇形の色
+const CAMERA_LENS_POSITION = [2.1, -58.5];  // レンズの先の位置（機体から見た x, y。XiaoESP32S3Sense.stl と同じ）
+const GROUND_LIFT_MM = 1;               // 地面に置くものを少し浮かせて、ちらつきを防ぐ
+
+function build_guidance_props(guidance, props) {
+  const goal = guidance.goal;
+  const ground_z = GROUND_Z_MM + GROUND_LIFT_MM;
+
+  // ゴール：コーン（ConeGeometry は y 方向が高さなので、x軸まわりに回して z を高さにする）
+  props.goal_group = new THREE.Group();
+  const cone_geometry = new THREE.ConeGeometry(guidance.cone.radius, guidance.cone.height, 32);
+  cone_geometry.rotateX(Math.PI / 2);
+  const cone = new THREE.Mesh(cone_geometry, new THREE.MeshStandardMaterial({ color: guidance.cone.color, roughness: 0.6 }));
+  cone.position.set(goal[0], goal[1], GROUND_Z_MM + guidance.cone.height / 2);
+  cone.castShadow = true;
+  props.goal_group.add(cone);
+
+  // ゴールから3mの円（点線）
+  const ring_points = [];
+  for (let i = 0; i <= GUIDANCE_RING_SEGMENTS; i++) {
+    const angle = (2 * Math.PI * i) / GUIDANCE_RING_SEGMENTS;
+    ring_points.push(new THREE.Vector3(
+      goal[0] + guidance.switch_distance_mm * Math.cos(angle),
+      goal[1] + guidance.switch_distance_mm * Math.sin(angle),
+      ground_z,
+    ));
+  }
+  const ring = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(ring_points),
+    new THREE.LineDashedMaterial({ color: 0xc8941f, dashSize: GUIDANCE_RING_DASH_MM, gapSize: GUIDANCE_RING_DASH_MM }),
+  );
+  ring.computeLineDistances();   // 点線にするために、線の長さを計算しておく
+  props.goal_group.add(ring);
+
+  // 円の外側に「3m」の文字
+  const ring_label = make_ground_label(`${guidance.switch_distance_mm / 1000}m`);
+  // make_ground_label は Three.js 座標用に寝かせてあるので、CAD座標では寝かせ直さない。
+  // 後ろ（+y）から見たときに文字が逆さにならないよう、z軸まわりに半回転させる
+  ring_label.rotation.set(0, 0, Math.PI);
+  ring_label.scale.setScalar(6);
+  ring_label.position.set(goal[0] + guidance.switch_distance_mm + 200, goal[1], ground_z);
+  props.goal_group.add(ring_label);
+  model_root.add(props.goal_group);
+
+  // 広い格子（スタートからゴールまでを含む範囲。1mごと）
+  const divisions = Math.round(guidance.area_size_mm / GUIDANCE_GRID_STEP_MM);
+  props.area_grid = new THREE.GridHelper(guidance.area_size_mm, divisions, 0xaab4c3, 0xc9d1dc);
+  props.area_grid.rotation.x = Math.PI / 2;   // GridHelper は y が上なので、CAD座標（z が上）に合わせる
+  props.area_grid.position.set(goal[0] / 2, goal[1] / 2, ground_z);
+  model_root.add(props.area_grid);
+
+  // GNSSで測った自分の位置の印（紫の輪）
+  props.estimate_marker = new THREE.Mesh(
+    new THREE.RingGeometry(ESTIMATE_MARKER_RADIUS_MM * 0.6, ESTIMATE_MARKER_RADIUS_MM, 32),
+    new THREE.MeshBasicMaterial({ color: ESTIMATE_MARKER_COLOR, side: THREE.DoubleSide }),
+  );
+  props.estimate_marker.position.z = ground_z + GROUND_LIFT_MM;
+  model_root.add(props.estimate_marker);
+
+  // カメラに見えている範囲（地面に描く扇形）。CircleGeometry の角度は +x から左回り、前（−y）は −90°
+  const half_fov = THREE.MathUtils.degToRad(guidance.camera_fov_deg / 2);
+  props.camera_fan_material = new THREE.MeshBasicMaterial({
+    color: CAMERA_FAN_COLOR_SEARCH, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false,
+  });
+  props.camera_fan = new THREE.Mesh(
+    new THREE.CircleGeometry(guidance.camera_range_mm, 32, -Math.PI / 2 - half_fov, half_fov * 2),
+    props.camera_fan_material,
+  );
+  props.camera_fan.position.set(CAMERA_LENS_POSITION[0], CAMERA_LENS_POSITION[1], ground_z + GROUND_LIFT_MM);
+  vehicle.add(props.camera_fan);
 }
 
 function make_translucent_material(color, opacity) {
@@ -1229,6 +1325,7 @@ function mission_pose(phase_index, t) {
     position: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
     carrier: false, envelope: true, envelope_open: 0, envelope_away: 0, fade: 0,
     chute_open: 0, chute_lean: 0, heat: 0, tegus: true, stabilizer: 0, drive: false,
+    guidance: null,   // "gnss"（GNSS誘導）／"camera"（カメラ誘導）／null（誘導のフェーズではない）
   };
 
   switch (action) {
@@ -1293,13 +1390,18 @@ function mission_pose(phase_index, t) {
       pose.stabilizer = smooth_between(0.1, 0.8, t);
       break;
 
+    // 走るフェーズ（ボタンで走らせる・GNSS誘導・カメラ誘導）：位置と向きは mission.drive から
     case "drive":
+    case "gnss_guidance":
+    case "camera_guidance":
       pose.envelope = false;
       pose.tegus = false;
       pose.stabilizer = 1;
       pose.drive = true;
       pose.position.set(mission.drive.x, mission.drive.y, 0);
       pose.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), mission.drive.yaw);
+      if (action === "gnss_guidance") pose.guidance = "gnss";
+      if (action === "camera_guidance") pose.guidance = "camera";
       break;
 
     default:
@@ -1346,6 +1448,16 @@ function apply_mission_pose(pose) {
 
   // スタビライザ
   update_stabilizer(pose.stabilizer);
+
+  // 誘導のフェーズだけ：ゴール・広い格子・GNSSの位置の印（GNSS誘導）・カメラの扇形（カメラ誘導）
+  const guidance = mission.guidance;
+  props.goal_group.visible = pose.guidance !== null;
+  props.area_grid.visible = pose.guidance !== null;
+  props.estimate_marker.visible = pose.guidance === "gnss";
+  props.estimate_marker.position.x = guidance.estimate.x;
+  props.estimate_marker.position.y = guidance.estimate.y;
+  props.camera_fan.visible = pose.guidance === "camera";
+  props.camera_fan_material.color.set(guidance.cone_found ? CAMERA_FAN_COLOR_FOUND : CAMERA_FAN_COLOR_SEARCH);
 
   // タイヤ：走行中だけ回す
   for (const mesh of view_state.meshes) {
@@ -1400,16 +1512,19 @@ function update_parachute(pose, envelope_away_shift) {
 //   進む速さ = 左右のタイヤの速さの平均
 //   曲がる速さ = 左右の速さの差 ÷ タイヤの間隔（右が速いと左へ曲がる）
 // ---------------------------------------------------------------
+const SPIN_SPEED_RATIO = 0.12;   // その場で回るときのタイヤの速さ（まっすぐ進むときに対する割合）
 const WHEEL_SPEED_RATIOS = {   // [x＜0 側（前から見て右）, x＞0 側（前から見て左）] の速さの割合
   forward: () => [1, 1],
   left: (inner) => [1, inner],     // 左へ曲がる：左（x＞0側）のタイヤを遅くする
   right: (inner) => [inner, 1],
+  // その場で左へ回る：左右のタイヤを逆に回す（カメラでコーンを探すとき）。
+  // 速く回るとコーンを見落としやすいので、ゆっくり回す
+  spin_left: () => [SPIN_SPEED_RATIO, -SPIN_SPEED_RATIO],
   stop: () => [0, 0],
 };
 
 function update_drive(dt) {
   const drive = mission.drive;
-  const config = mission.data.drive;
   const phase = mission.data.phases[mission.phase_index];
 
   // お手本の動き（demo）の途中なら、時間からいまの動きを決める
@@ -1425,9 +1540,20 @@ function update_drive(dt) {
     set_drive_move(move ?? "stop", false);
   }
 
+  integrate_drive(dt, mission.data.drive.speed_mm_s, mission.data.drive.turn_inner_ratio);
+}
+
+// ---------------------------------------------------------------
+// いまの動き（drive.move）のまま dt 秒進めて、機体の位置・向き・タイヤの角度を更新する
+//   speed_mm_s：まっすぐ進むときの速さ（誘導のフェーズでは、見やすいように速くする）
+//   inner_ratio：曲がるとき、内側のタイヤを外側の何倍の速さにするか（1に近いほどゆるやかに曲がる）
+// ---------------------------------------------------------------
+function integrate_drive(dt, speed_mm_s, inner_ratio) {
+  const drive = mission.drive;
+  const config = mission.data.drive;
   const ratio_fn = WHEEL_SPEED_RATIOS[drive.move] ?? WHEEL_SPEED_RATIOS.stop;
-  const [ratio_xneg, ratio_xpos] = ratio_fn(config.turn_inner_ratio);
-  const base_rate = config.speed_mm_s / config.wheel_radius_mm;   // タイヤの回る速さ（ラジアン毎秒）
+  const [ratio_xneg, ratio_xpos] = ratio_fn(inner_ratio);
+  const base_rate = speed_mm_s / config.wheel_radius_mm;   // タイヤの回る速さ（ラジアン毎秒）
   const rate_xneg = base_rate * ratio_xneg;
   const rate_xpos = base_rate * ratio_xpos;
   drive.wheel_xneg += rate_xneg * dt;
@@ -1466,17 +1592,185 @@ function reset_drive() {
   set_drive_move("stop", false);   // move を null にしてあるので、表示も必ず更新される
 }
 
+// =============================================================
+// GNSS誘導・カメラ誘導（自動で走る）
+//   GNSS誘導：決まった間隔（mission.json の gnss_update_s）で「ずれを含んだ自分の位置」を測り、そこからゴールの方向を計算して向きを直す。
+//             測った位置でゴールまで3m以内に入ったら終わり
+//   カメラ誘導：カメラに見える範囲（扇形）にコーンがなければ、その場で回って探す。
+//             見つけたら、コーンが真ん中に来るように向きを直しながら近づく
+// =============================================================
+const GUIDANCE_RANDOM_SEED = 20261119;   // 位置のずれの並び（毎回同じ動きにするための種）
+
+// 角度を −π〜π の範囲に直す（「左に350°」を「右に10°」として扱うため）
+function wrap_angle(angle) {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+// 疑似乱数（0〜1）。決まった式で作るので、何度見ても同じ動きになる
+function guidance_random() {
+  const g = mission.guidance;
+  g.random_seed = (g.random_seed * 16807) % 2147483647;
+  return g.random_seed / 2147483647;
+}
+
+// 地点 (from_x, from_y) から見たゴールの向きと、機体の向きとの差（左がプラス）
+//   前は −y なので、向き yaw の前方向は (sin yaw, −cos yaw)
+function heading_error_to_goal(from_x, from_y) {
+  const goal = mission.data.guidance.goal;
+  const desired_yaw = Math.atan2(goal[0] - from_x, -(goal[1] - from_y));
+  return wrap_angle(desired_yaw - mission.drive.yaw);
+}
+
+// 機体の中心から、いちばん前（−y 方向）の点までの長さ（mm）。部品の形から1回だけ計算する
+let vehicle_front_extent_mm = null;
+
+function get_vehicle_front_extent() {
+  if (vehicle_front_extent_mm === null) {
+    let min_y = 0;
+    for (const mesh of view_state.meshes) {
+      const box = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.userData.base_matrix);
+      min_y = Math.min(min_y, box.min.y);
+    }
+    vehicle_front_extent_mm = -min_y;
+  }
+  return vehicle_front_extent_mm;
+}
+
+// 止まる距離：機体の前面がコーン（いちばん太い底の円）に触れるときの、機体の中心とコーンの中心の距離
+function contact_distance_mm() {
+  return mission.data.guidance.cone.radius + get_vehicle_front_extent();
+}
+
+function distance_to_goal(from_x, from_y) {
+  const goal = mission.data.guidance.goal;
+  return Math.hypot(goal[0] - from_x, goal[1] - from_y);
+}
+
+// GNSSで位置を測る（本当の位置に、ランダムなずれを足す）
+function measure_gnss_position() {
+  const g = mission.guidance;
+  const error = mission.data.guidance.gnss_error_mm;
+  const angle = 2 * Math.PI * guidance_random();
+  const length = error * Math.sqrt(guidance_random());   // 円の中に一様にばらつくように
+  g.estimate.set(mission.drive.x + length * Math.cos(angle), mission.drive.y + length * Math.sin(angle));
+}
+
+// 誘導のフェーズに入ったときの準備
+//   continue_from_gnss：GNSS誘導を最後まで見てからカメラ誘導に来たときは、その位置から続ける
+function reset_guidance(action, continue_from_gnss) {
+  const g = mission.guidance;
+  const config = mission.data.guidance;
+  g.done = false;
+  g.cone_found = false;
+  g.estimate_timer = 0;
+  g.random_seed = GUIDANCE_RANDOM_SEED;
+
+  if (!continue_from_gnss) {
+    Object.assign(mission.drive, { x: 0, y: 0, yaw: 0, wheel_xneg: 0, wheel_xpos: 0 });
+    if (action === "camera_guidance") {
+      // スタートとゴールを結ぶ線の上で、ゴールから3mの点に置く。向きは、ゴールから少しずらす
+      const goal = config.goal;
+      const ratio = 1 - config.switch_distance_mm / distance_to_goal(0, 0);
+      mission.drive.x = goal[0] * ratio;
+      mission.drive.y = goal[1] * ratio;
+      mission.drive.yaw = 0;
+      mission.drive.yaw = wrap_angle(
+        heading_error_to_goal(mission.drive.x, mission.drive.y) - THREE.MathUtils.degToRad(config.camera_start_heading_deg));
+    }
+  }
+  measure_gnss_position();
+  mission.drive.move = "stop";
+  update_guidance_status(action);
+}
+
+function update_guidance(dt, action) {
+  const g = mission.guidance;
+  const config = mission.data.guidance;
+  const drive = mission.drive;
+  const tolerance = THREE.MathUtils.degToRad(config.heading_tolerance_deg);
+
+  if (!g.done) {
+    if (action === "gnss_guidance") {
+      // 決まった間隔で位置を測り直す。向きの判断は、測った位置（ずれを含む）を使う
+      g.estimate_timer += dt;
+      if (g.estimate_timer >= config.gnss_update_s) {
+        g.estimate_timer = 0;
+        measure_gnss_position();
+      }
+      if (distance_to_goal(g.estimate.x, g.estimate.y) <= config.switch_distance_mm) {
+        g.done = true;
+        drive.move = "stop";
+      } else {
+        const error = heading_error_to_goal(g.estimate.x, g.estimate.y);
+        drive.move = Math.abs(error) <= tolerance ? "forward" : (error > 0 ? "left" : "right");
+      }
+    } else {
+      // カメラ：機体の本当の位置から見たコーンの向きが、見える範囲（扇形）に入っているか
+      const error = heading_error_to_goal(drive.x, drive.y);
+      const distance = distance_to_goal(drive.x, drive.y);
+      g.cone_found = Math.abs(error) <= THREE.MathUtils.degToRad(config.camera_fov_deg / 2)
+        && distance <= config.camera_range_mm;
+      if (distance <= contact_distance_mm()) {
+        // 機体の前面がコーンに触れたらゴール
+        g.done = true;
+        drive.move = "stop";
+      } else if (!g.cone_found) {
+        drive.move = "spin_left";
+      } else {
+        drive.move = Math.abs(error) <= tolerance ? "forward" : (error > 0 ? "left" : "right");
+      }
+    }
+  }
+  integrate_drive(dt, config.display_speed_mm_s, config.turn_inner_ratio);
+  update_guidance_status(action);
+}
+
+// 右の欄に、いまの誘導の様子を出す
+const GUIDANCE_MOVE_TEXT = {
+  forward: "ゴールの方向へまっすぐ進んでいます",
+  left: "左へ向きを直しています",
+  right: "右へ向きを直しています",
+  spin_left: "その場で回って、コーンを探しています",
+  stop: "止まっています",
+};
+
+function update_guidance_status(action) {
+  const g = mission.guidance;
+  const drive = mission.drive;
+  let text;
+  if (action === "gnss_guidance") {
+    const measured = distance_to_goal(g.estimate.x, g.estimate.y) / 1000;
+    text = g.done
+      ? `GNSSで測ったゴールまでの距離が3m以内になりました（${measured.toFixed(1)} m）。カメラ誘導に切り替えます`
+      : `GNSSで測ったゴールまでの距離：${measured.toFixed(1)} m ／ ${GUIDANCE_MOVE_TEXT[drive.move] ?? ""}`;
+  } else {
+    if (g.done) {
+      text = "機体の前面がコーンに触れました。ゴールです！";
+    } else {
+      text = `${g.cone_found ? "コーンが見えています" : "コーンが見えていません"} ／ ${GUIDANCE_MOVE_TEXT[drive.move] ?? ""}`;
+    }
+  }
+  if (guidance_status_el.textContent !== text) guidance_status_el.textContent = text;
+}
+
 // ---------------------------------------------------------------
 // フェーズを切り替える
 // ---------------------------------------------------------------
 function go_to_phase(index) {
   const phases = mission.data.phases;
   index = THREE.MathUtils.clamp(index, 0, phases.length - 1);
+  // GNSS誘導を最後まで見てから、すぐ次のカメラ誘導に来たか（そのときは、止まった位置から続ける）
+  const previous = phases[mission.phase_index];
+  const continue_from_gnss = previous.action === "gnss_guidance" && mission.guidance.done
+    && index === mission.phase_index + 1;
   mission.phase_index = index;
   mission.time_s = 0;
   mission.hold_s = 0;
   const phase = phases[index];
   if (phase.action === "drive") reset_drive();
+  if (phase.action === "gnss_guidance" || phase.action === "camera_guidance") {
+    reset_guidance(phase.action, continue_from_gnss);
+  }
   // 最後のフェーズでは、自動再生は終わり
   if (index === phases.length - 1) set_autoplay(false);
 
@@ -1499,8 +1793,12 @@ function update_mission(dt) {
   const duration = phase.duration_s * motion_factor;
 
   mission.time_s += dt;
-  const t = Math.min(mission.time_s / duration, 1);
+  let t = Math.min(mission.time_s / duration, 1);
   if (phase.action === "drive") update_drive(dt);
+  if (phase.action === "gnss_guidance" || phase.action === "camera_guidance") {
+    update_guidance(dt, phase.action);
+    t = mission.guidance.done ? 1 : 0;   // 誘導のフェーズは、目的を達成したら「終わり」（自動再生で次へ進む）
+  }
   apply_mission_pose(mission_pose(mission.phase_index, t));
   follow_vehicle_with_camera();
 
@@ -1601,6 +1899,7 @@ function render_phase_panel() {
   set_optional_text(phase_detail_el, phase.detail);
   set_optional_text(phase_provisional_el, phase.provisional ? `仮：${phase.provisional}` : "");
   drive_controls_el.classList.toggle("hidden", phase.action !== "drive");
+  guidance_status_el.classList.toggle("hidden", phase.action !== "gnss_guidance" && phase.action !== "camera_guidance");
 
   // フェーズの一覧と、下の帯の丸印
   phase_list_el.innerHTML = "";
