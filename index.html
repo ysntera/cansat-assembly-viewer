@@ -72,6 +72,31 @@
 
       <!-- ===== ミッションモード：いまのフェーズの説明 ===== -->
       <div id="panel_mission" class="hidden">
+        <!-- ===== 遠隔操作：ボタンで機体を動かす（ミッションの流れとは別。下の帯の「遠隔操作」で切り替え） ===== -->
+        <div id="panel_remote" class="hidden">
+          <p class="step_counter">遠隔操作</p>
+          <h2>機体を走らせてみる</h2>
+          <p>左右のモータでタイヤを回して走ります。左右の回転の速さを変えると曲がります。下のボタンで動かして、ゴールの赤いコーンを目指しましょう。</p>
+
+          <!-- 機体を動かすボタン（スマホでもすぐ押せるよう、説明文のすぐ下に置く） -->
+          <div class="drive_controls" id="drive_controls">
+            <div class="drive_buttons">
+              <button data-move="left">↰ 左旋回</button>
+              <button data-move="forward">↑ 前進</button>
+              <button data-move="right">↱ 右旋回</button>
+              <button data-move="stop">■ 止める</button>
+            </div>
+            <p class="guidance_status" id="remote_status"></p>
+            <p class="note" id="drive_status"></p>
+            <button class="link_button" id="btn_drive_reset">スタート位置に戻す</button>
+          </div>
+
+          <p class="mechanism">モータ：Pololu製 25Dサイズ、ギア比75:1（型番3230）、無負荷で毎分100回転。モータの軸を、シャフトホルダでタイヤに直結しています。</p>
+          <p class="provisional">仮：ゴールまでの距離と向きは、GNSS誘導と同じ仮の値です。画面では実際より速く走らせています</p>
+        </div>
+
+        <!-- ===== ミッションの流れ（フェーズ） ===== -->
+        <div id="panel_sequence">
         <p class="step_counter" id="phase_counter"></p>
         <h2 id="phase_title"></h2>
         <p id="phase_text"></p>
@@ -79,44 +104,28 @@
         <!-- GNSS誘導・カメラ誘導だけ：いまの誘導の様子（ゴールまでの距離など） -->
         <p class="guidance_status hidden" id="guidance_status"></p>
 
-        <!-- 走行フェーズだけ：機体を動かすボタン（スマホでもすぐ押せるよう、説明文のすぐ下に置く） -->
-        <div class="drive_controls hidden" id="drive_controls">
-          <div class="drive_buttons">
-            <button data-move="left">↰ 左旋回</button>
-            <button data-move="forward">↑ 前進</button>
-            <button data-move="right">↱ 右旋回</button>
-            <button data-move="stop">■ 止める</button>
-          </div>
-          <p class="note" id="drive_status"></p>
-          <button class="link_button" id="btn_drive_reset">スタート位置に戻す</button>
-        </div>
-
         <p class="mechanism hidden" id="phase_detail"></p>
         <p class="provisional hidden" id="phase_provisional"></p>
         <button class="link_button" id="btn_replay_phase">↻ このフェーズをもう一度見る</button>
 
         <h3>フェーズの一覧</h3>
         <ol class="step_list" id="phase_list"></ol>
+        </div>
       </div>
 
       <!-- ===== 部品を見るモード ===== -->
       <div id="panel_parts" class="hidden">
-        <!-- 何も選んでいないとき：部品の一覧 -->
+        <!-- 部品の一覧（いつも表示したまま） -->
         <div id="panel_overview">
           <h2>部品を見る</h2>
-          <p>部品をクリック（タップ）すると、名前・役割・材質が表示されます。下の一覧から選ぶこともできます。</p>
+          <p>一覧の部品か、3D画面の部品をクリック（タップ）すると、一覧の中でその部品の説明が開きます。もう一度押すと閉じます。</p>
           <h3>部品の一覧</h3>
           <ul class="legend" id="legend"></ul>
           <p class="note">「仮」と付いた部品は、形や位置がまだ確定していません。</p>
         </div>
 
-        <!-- 部品を選んだとき：その部品の説明 -->
-        <div id="panel_detail" class="hidden">
-          <button class="link_button" id="btn_back_to_list">← 部品の一覧に戻る</button>
-          <h2 class="detail_title">
-            <span class="chip" id="detail_chip"></span>
-            <span id="detail_name"></span>
-          </h2>
+        <!-- 選んだ部品の説明。main.js が、一覧の中の選んだ部品のすぐ下へ移して表示する -->
+        <div id="panel_detail" class="part_detail hidden">
           <p id="detail_role"></p>
           <dl class="detail_specs">
             <dt>材質</dt><dd id="detail_material"></dd>
@@ -141,10 +150,13 @@
 
     <!-- ===== ミッションモードの操作 ===== -->
     <div class="bar_group hidden" id="bar_mission">
-      <button id="btn_prev_phase">◀ 前へ</button>
-      <div class="step_dots" id="phase_dots"></div>
-      <button id="btn_next_phase">次へ ▶</button>
-      <button class="primary" id="btn_autoplay" aria-pressed="false">▶ 自動再生</button>
+      <!-- ミッションの流れの操作（遠隔操作の間は隠す） -->
+      <button class="sequence_only" id="btn_prev_phase">◀ 前へ</button>
+      <div class="step_dots sequence_only" id="phase_dots"></div>
+      <button class="sequence_only" id="btn_next_phase">次へ ▶</button>
+      <button class="primary sequence_only" id="btn_autoplay" aria-pressed="false">▶ 自動再生</button>
+      <!-- 遠隔操作とミッションの流れを切り替える -->
+      <button class="remote_toggle" id="btn_remote" aria-pressed="false">🎮 遠隔操作</button>
       <span class="spacer_flex"></span>
       <button id="btn_phase_view">おすすめの視点に戻す</button>
     </div>
