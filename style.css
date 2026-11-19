@@ -171,7 +171,7 @@ button { font-family: inherit; }
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
 }
 .legend { list-style: none; margin: 0; padding: 0; }
-.legend li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.legend li { padding: 1px 0; }
 .chip {
   flex: none;
   width: 14px;
@@ -189,7 +189,8 @@ button { font-family: inherit; }
 .note { font-size: 12px; color: var(--muted); }
 
 /* 部品の一覧（クリックで選べるボタン） */
-.legend button {
+.legend_button {
+  min-height: var(--touch_size);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -203,7 +204,28 @@ button { font-family: inherit; }
   text-align: left;
   cursor: pointer;
 }
-.legend button:hover { background: var(--soft); }
+.legend_button:hover { background: var(--soft); }
+
+/* 開閉の三角：開いているときは下向きにする */
+.legend_arrow {
+  flex: none;
+  width: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform 0.15s;
+}
+.legend li.open .legend_arrow { transform: rotate(90deg); color: var(--gold); }
+.legend li.open > .legend_button { background: var(--soft); font-weight: 700; }
+
+/* 一覧の中で開く部品の説明：左に金の線を引いて、どの部品の説明か分かるようにする */
+.part_detail {
+  margin: 4px 0 10px 13px;
+  padding: 6px 10px 10px 12px;
+  border-left: 3px solid var(--gold);
+  font-size: 13px;
+}
+.part_detail p { margin: 0 0 6px; }
+.part_detail .detail_specs { margin: 6px 0; }
 
 /* 部品の説明 */
 .hidden { display: none !important; }
@@ -316,6 +338,10 @@ button { font-family: inherit; }
 }
 /* 自動再生中（もう一度押すと止まる）は、枠だけの金。白の上で読めるよう、文字は濃い金にする */
 .bottombar button.primary[aria-pressed="true"] { background: var(--panel); color: #7a5a14; }
+
+/* 遠隔操作の切り替えボタン：青の枠。遠隔操作の間（ミッションに戻る）は青で塗る */
+.bottombar button.remote_toggle { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.bottombar button.remote_toggle[aria-pressed="true"] { background: var(--accent); color: #fff; }
 
 .control { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .control input { accent-color: var(--accent); }

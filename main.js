@@ -123,10 +123,7 @@ const hint_el = $("hint");
 const tooltip_el = $("tooltip");
 // 部品を見るモード
 const legend_el = $("legend");
-const panel_overview_el = $("panel_overview");
 const panel_detail_el = $("panel_detail");
-const detail_chip_el = $("detail_chip");
-const detail_name_el = $("detail_name");
 const detail_role_el = $("detail_role");
 const detail_material_el = $("detail_material");
 const detail_count_el = $("detail_count");
@@ -162,6 +159,10 @@ const phase_dots_el = $("phase_dots");
 const drive_controls_el = $("drive_controls");
 const drive_status_el = $("drive_status");
 const guidance_status_el = $("guidance_status");
+const panel_remote_el = $("panel_remote");
+const panel_sequence_el = $("panel_sequence");
+const remote_status_el = $("remote_status");
+const btn_remote_el = $("btn_remote");
 const btn_prev_phase_el = $("btn_prev_phase");
 const btn_next_phase_el = $("btn_next_phase");
 const btn_autoplay_el = $("btn_autoplay");
@@ -969,6 +970,8 @@ const mission = {
   hold_s: 0,               // フェーズが終わってから、次へ進むまで待った時間（自動再生用）
   playing: false,          // 自動再生中か
   follow_camera: true,     // フェーズを変えたとき、おすすめの視点へ自動で移るか
+  remote: false,           // 遠隔操作（ボタンで走らせる）の画面になっているか。ミッションの流れとは別
+  remote_last_distance: Infinity,   // 遠隔操作で、前のコマでのゴールまでの距離（近づいているかを調べる）
   props: null,             // 仮の形（キャリア・エンベロープ・パラシュートなど）
   vehicle_world: new THREE.Vector3(),   // 前のコマでの機体の位置（カメラを機体について動かすため）
   stabi_curvature: 0,      // スタビライザの曲がり具合（先が地面に届くように計算で決める）
@@ -1311,7 +1314,8 @@ function update_stabilizer(deploy) {
 // ---------------------------------------------------------------
 function mission_pose(phase_index, t) {
   const scene_data = mission.data.scene;
-  const action = mission.data.phases[phase_index].action;
+  // 遠隔操作の画面では、フェーズに関係なく「遠隔操作」の姿にする
+  const action = mission.remote ? "remote" : mission.data.phases[phase_index].action;
   const stow_z = scene_data.stow_altitude_mm;
   const released_z = stow_z - scene_data.release_drop_mm;
   const descent_end_z = scene_data.descent_end_altitude_mm;
@@ -1325,7 +1329,7 @@ function mission_pose(phase_index, t) {
     position: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
     carrier: false, envelope: true, envelope_open: 0, envelope_away: 0, fade: 0,
     chute_open: 0, chute_lean: 0, heat: 0, tegus: true, stabilizer: 0, drive: false,
-    guidance: null,   // "gnss"（GNSS誘導）／"camera"（カメラ誘導）／null（誘導のフェーズではない）
+    guidance: null,   // "gnss"（GNSS誘導）／"camera"（カメラ誘導）／"remote"（遠隔操作）／null（どれでもない）
   };
 
   switch (action) {
@@ -1390,7 +1394,8 @@ function mission_pose(phase_index, t) {
       pose.stabilizer = smooth_between(0.1, 0.8, t);
       break;
 
-    // 走るフェーズ（ボタンで走らせる・GNSS誘導・カメラ誘導）：位置と向きは mission.drive から
+    // 走る姿（遠隔操作・GNSS誘導・カメラ誘導。"drive" は以前の「走らせてみる」フェーズ用）：位置と向きは mission.drive から
+    case "remote":
     case "drive":
     case "gnss_guidance":
     case "camera_guidance":
@@ -1402,6 +1407,7 @@ function mission_pose(phase_index, t) {
       pose.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), mission.drive.yaw);
       if (action === "gnss_guidance") pose.guidance = "gnss";
       if (action === "camera_guidance") pose.guidance = "camera";
+      if (action === "remote") pose.guidance = "remote";   // ゴールのコーンと格子だけを出す
       break;
 
     default:
@@ -1753,10 +1759,76 @@ function update_guidance_status(action) {
   if (guidance_status_el.textContent !== text) guidance_status_el.textContent = text;
 }
 
+// =============================================================
+// 遠隔操作（ボタンで走らせる）。ミッションの流れ（フェーズ）とは別の画面で、
+// 下の帯の「遠隔操作」ボタンで切り替える。GNSS誘導と同じスタート地点から、ゴールのコーンを目指す
+// =============================================================
+
+// 遠隔操作の画面に切り替える（on = true）／ミッションの流れに戻る（on = false）
+function set_remote(on) {
+  if (on) {
+    set_autoplay(false);
+    mission.remote = true;
+    reset_drive();                     // スタート地点（GNSS誘導と同じ）に置き、止めておく
+    mission.drive.demo_active = false; // 遠隔操作では、お手本の動きはしない
+    mission.remote_last_distance = Infinity;
+    render_remote_ui();
+    apply_mission_pose(mission_pose(mission.phase_index, 0));
+    follow_vehicle_with_camera();
+    stop_camera_motion();
+    mission.follow_camera = true;
+    move_camera_relative(mission.data.remote.camera);
+    update_remote_status();
+  } else {
+    // go_to_phase の中で mission.remote を false に戻し、画面も切り替える
+    go_to_phase(mission.phase_index);
+  }
+}
+
+// 遠隔操作かどうかに合わせて、右の欄と下の帯の表示を切り替える
+function render_remote_ui() {
+  const on = mission.remote;
+  panel_remote_el.classList.toggle("hidden", !on);
+  panel_sequence_el.classList.toggle("hidden", on);
+  document.querySelectorAll("#bar_mission .sequence_only").forEach((element) => {
+    element.classList.toggle("hidden", on);
+  });
+  btn_remote_el.setAttribute("aria-pressed", String(on));
+  btn_remote_el.textContent = on ? "↩ ミッションに戻る" : "🎮 遠隔操作";
+  if (on) panel_remote_el.closest(".panel").scrollTop = 0;
+}
+
+// 毎コマ：ボタンの動きのまま走らせ、前面がコーンに触れたら止める
+function update_remote(dt) {
+  const config = mission.data.remote;
+  integrate_drive(dt, config.speed_mm_s, config.turn_inner_ratio);
+
+  const distance = distance_to_goal(mission.drive.x, mission.drive.y);
+  // コーンに近づく向きに動いていて、前面が触れたら止める（離れる向きなら、そのまま動ける）
+  if (distance <= contact_distance_mm() && distance < mission.remote_last_distance && mission.drive.move !== "stop") {
+    set_drive_move("stop", false);
+  }
+  mission.remote_last_distance = distance;
+  update_remote_status();
+}
+
+function update_remote_status() {
+  const distance = distance_to_goal(mission.drive.x, mission.drive.y);
+  const text = distance <= contact_distance_mm() + 1
+    ? "機体の前面がコーンに触れました。ゴールです！"
+    : `ゴールのコーンまで：${(distance / 1000).toFixed(1)} m`;
+  if (remote_status_el.textContent !== text) remote_status_el.textContent = text;
+}
+
 // ---------------------------------------------------------------
 // フェーズを切り替える
 // ---------------------------------------------------------------
 function go_to_phase(index) {
+  // 遠隔操作の画面から、フェーズの操作（キーボードの ← → など）をしたときは、ミッションの流れに戻る
+  if (mission.remote) {
+    mission.remote = false;
+    render_remote_ui();
+  }
   const phases = mission.data.phases;
   index = THREE.MathUtils.clamp(index, 0, phases.length - 1);
   // GNSS誘導を最後まで見てから、すぐ次のカメラ誘導に来たか（そのときは、止まった位置から続ける）
@@ -1791,6 +1863,14 @@ function update_mission(dt) {
   const phases = mission.data.phases;
   const phase = phases[mission.phase_index];
   const duration = phase.duration_s * motion_factor;
+
+  // 遠隔操作：ボタンの操作で走らせるだけ（フェーズは進めない）
+  if (mission.remote) {
+    update_remote(dt);
+    apply_mission_pose(mission_pose(mission.phase_index, 0));
+    follow_vehicle_with_camera();
+    return;
+  }
 
   mission.time_s += dt;
   let t = Math.min(mission.time_s / duration, 1);
@@ -1874,6 +1954,8 @@ function enter_mission() {
 
 function leave_mission() {
   set_autoplay(false);
+  mission.remote = false;   // 次にミッションモードに入ったときは、ミッションの流れから始める
+  render_remote_ui();
   vehicle.position.set(0, 0, 0);
   vehicle.quaternion.identity();
   mission.vehicle_world.set(0, 0, 0);   // 影を作る光も原点に戻る
@@ -1898,7 +1980,6 @@ function render_phase_panel() {
   phase_text_el.textContent = phase.text;
   set_optional_text(phase_detail_el, phase.detail);
   set_optional_text(phase_provisional_el, phase.provisional ? `仮：${phase.provisional}` : "");
-  drive_controls_el.classList.toggle("hidden", phase.action !== "drive");
   guidance_status_el.classList.toggle("hidden", phase.action !== "gnss_guidance" && phase.action !== "camera_guidance");
 
   // フェーズの一覧と、下の帯の丸印
@@ -1944,14 +2025,30 @@ function make_provisional_tag(part) {
 }
 
 // ---------------------------------------------------------------
-// 右の欄に部品の一覧（色見本つき）を出す。クリックするとその部品を選ぶ
+// 右の欄に部品の一覧（色見本つき）を出す。
+// クリックすると、その部品の説明が一覧の中で開く（開いている部品をもう一度押すと閉じる）
 // ---------------------------------------------------------------
+const legend_items = new Map();   // 部品の id → 一覧の行（<li>）。説明欄を差し込む場所を探すのに使う
+
 function render_legend(parts) {
   legend_el.innerHTML = "";
+  legend_items.clear();
   for (const part of parts) {
     const item = document.createElement("li");
     const button = document.createElement("button");
-    button.addEventListener("click", () => select_part(part.id));
+    button.className = "legend_button";
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", "panel_detail");
+    button.addEventListener("click", () => {
+      select_part(view_state.selected_id === part.id ? null : part.id);
+    });
+
+    // 開いているか閉じているかを示す三角（CSS で向きを変える）
+    const arrow = document.createElement("span");
+    arrow.className = "legend_arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = "▸";
+    button.appendChild(arrow);
 
     const chip = document.createElement("span");
     chip.className = "chip";
@@ -1965,6 +2062,7 @@ function render_legend(parts) {
     if (part.provisional) button.appendChild(make_provisional_tag(part));
     item.appendChild(button);
     legend_el.appendChild(item);
+    legend_items.set(part.id, item);
   }
 }
 
@@ -1992,7 +2090,7 @@ function update_explode_positions() {
 }
 
 // ---------------------------------------------------------------
-// 部品を選ぶ（part_id が null なら選択を解除して一覧に戻る）
+// 部品を選ぶ（part_id が null なら選択を解除して、説明を閉じる）
 // ---------------------------------------------------------------
 function select_part(part_id) {
   view_state.selected_id = part_id;
@@ -2002,16 +2100,23 @@ function select_part(part_id) {
 }
 
 // ---------------------------------------------------------------
-// 右の欄を、いまの状態（一覧／部品の説明）に合わせて書き直す
+// 右の欄を、いまの状態に合わせて書き直す。
+// 一覧はいつも出したまま、選んだ部品の行のすぐ下に説明欄（panel_detail）を移して開く
 // ---------------------------------------------------------------
 function render_parts_panel() {
   const part = find_part(view_state.selected_id);
-  panel_overview_el.classList.toggle("hidden", Boolean(part));
+  for (const [id, item] of legend_items) {
+    const is_open = Boolean(part) && id === part.id;
+    item.classList.toggle("open", is_open);
+    item.querySelector(".legend_button").setAttribute("aria-expanded", String(is_open));
+  }
   panel_detail_el.classList.toggle("hidden", !part);
   if (!part) return;
 
-  detail_chip_el.style.background = part.color;
-  detail_name_el.textContent = part.name;
+  // 選んだ部品の行の中（ボタンの下）へ説明欄を移す
+  const item = legend_items.get(part.id);
+  if (item && panel_detail_el.parentElement !== item) item.appendChild(panel_detail_el);
+
   detail_role_el.textContent = part.role;
   detail_material_el.textContent = part.material;
   detail_count_el.textContent =
@@ -2023,7 +2128,8 @@ function render_parts_panel() {
   btn_isolate_el.setAttribute("aria-pressed", String(view_state.isolate));
   btn_isolate_el.textContent = view_state.isolate ? "すべての部品を表示する" : "この部品だけ表示";
 
-  panel_detail_el.closest(".panel").scrollTop = 0;
+  // 開いた説明が見えるように、一覧をその位置までスクロールする（3D画面で選んだときのため）
+  (item ?? panel_detail_el).scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 // =============================================================
@@ -2185,20 +2291,23 @@ function setup_controls() {
   btn_phase_view_el.addEventListener("click", () => {
     mission.follow_camera = true;
     btn_phase_view_el.classList.remove("attention");
-    const phase = mission.data.phases[mission.phase_index];
-    if (phase.camera) move_camera_relative(phase.camera);
+    // 遠隔操作の画面なら遠隔操作の視点、そうでなければいまのフェーズの視点
+    const spec = mission.remote ? mission.data.remote.camera : mission.data.phases[mission.phase_index].camera;
+    if (spec) move_camera_relative(spec);
   });
+  btn_remote_el.addEventListener("click", () => set_remote(!mission.remote));
   drive_controls_el.querySelectorAll("button[data-move]").forEach((button) => {
     button.addEventListener("click", () => set_drive_move(button.dataset.move, true));
   });
   $("btn_drive_reset").addEventListener("click", () => {
     reset_drive();
     mission.drive.demo_active = false;
+    mission.remote_last_distance = Infinity;
+    update_remote_status();
   });
 
   // 部品を見るモード
   $("btn_reset_view").addEventListener("click", reset_view);
-  $("btn_back_to_list").addEventListener("click", () => select_part(null));
 
   btn_isolate_el.addEventListener("click", () => {
     view_state.isolate = !view_state.isolate;
