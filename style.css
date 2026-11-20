@@ -142,6 +142,40 @@ button { font-family: inherit; }
   pointer-events: none;
 }
 
+/* ===== 右上の、視点を切り替える立方体（ViewCube） ===== */
+.view_cube {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 96px;
+  height: 96px;
+  z-index: 2;
+}
+.view_cube_canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;   /* 指でドラッグしたときに、ページがスクロールしないようにする */
+}
+/* ⌂（ホーム）ボタン：立方体の左上に小さく置く */
+.view_cube_home {
+  position: absolute;
+  top: -4px;
+  left: -10px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--gold);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.view_cube_home:hover { background: var(--navy_deep); }
+
 .panel {
   width: 330px;
   padding: 16px;
@@ -543,6 +577,9 @@ button { font-family: inherit; }
     border-top: 1px solid var(--line);
   }
   .hint { right: 8px; font-size: 11px; }
+  /* 立方体は少し小さくする。⌂ ボタンは指で押しやすい大きさのまま */
+  .view_cube { width: 76px; height: 76px; top: 8px; right: 8px; }
+  .view_cube_home { width: 32px; height: 32px; top: -6px; left: -14px; }
 
   .bottombar { padding: 6px 10px; }
   .bar_group { gap: 6px 8px; }

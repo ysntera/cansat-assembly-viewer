@@ -2203,17 +2203,56 @@ function setup_pointer_events() {
   });
 
   // 自分で視点を動かし始めたら、自動の動きを止め、以後は手順を変えても視点を動かさない
-  controls.addEventListener("start", () => {
-    stop_camera_motion();
-    if (view_state.mode === "assembly" && view_state.follow_camera) {
-      view_state.follow_camera = false;
-      render_step_buttons();
-    }
-    if (view_state.mode === "mission" && mission.follow_camera) {
-      mission.follow_camera = false;
-      btn_phase_view_el.classList.add("attention");
-    }
-  });
+  controls.addEventListener("start", on_user_view_change);
+}
+
+// ---------------------------------------------------------------
+// 自分で視点を動かしたとき（マウス・指・ViewCube）：自動の視点の移動を止め、
+// 「おすすめの視点に戻す」を目立たせる
+// ---------------------------------------------------------------
+function on_user_view_change() {
+  stop_camera_motion();
+  if (view_state.mode === "assembly" && view_state.follow_camera) {
+    view_state.follow_camera = false;
+    render_step_buttons();
+  }
+  if (view_state.mode === "mission" && mission.follow_camera) {
+    mission.follow_camera = false;
+    btn_phase_view_el.classList.add("attention");
+  }
+}
+
+// ---------------------------------------------------------------
+// ViewCube の ⌂ ボタン：いまのモードの「おすすめの視点に戻す」と同じことをする
+// ---------------------------------------------------------------
+function go_home_view() {
+  if (view_state.mode === "assembly") btn_step_view_el.click();
+  else if (view_state.mode === "mission") btn_phase_view_el.click();
+  else $("btn_reset_view").click();
+}
+
+// ---------------------------------------------------------------
+// ViewCube（右上の、視点を切り替える立方体）を用意する。中身は viewcube.js
+// 版の番号を付けて読み込み、更新したときに古いファイルが使われないようにする
+// ---------------------------------------------------------------
+let view_cube = null;
+
+async function setup_view_cube() {
+  try {
+    const { create_view_cube } = await import(`./viewcube.js${VERSION_QUERY}`);
+    view_cube = create_view_cube({
+      main_camera: camera,
+      controls,
+      container: $("view_cube"),
+      home_button: $("btn_view_home"),
+      on_view_change: on_user_view_change,
+      on_home: go_home_view,
+    });
+  } catch (err) {
+    // 立方体がなくても、ほかの操作はできるので、知らせるだけにする
+    console.error("ViewCube を用意できませんでした", err);
+    $("view_cube").classList.add("hidden");
+  }
 }
 
 // ---------------------------------------------------------------
@@ -2354,9 +2393,11 @@ function animate() {
   // 影を作る光を機体について動かす（遠くへ走っても影が出るように）
   sun.target.position.copy(mission.vehicle_world);
   sun.position.copy(mission.vehicle_world).add(SUN_OFFSET);
-  controls.update(dt);
+  // ViewCube で回している途中は、OrbitControls の慣性で向きが戻らないように更新しない
+  if (!view_cube || !view_cube.is_moving()) controls.update(dt);
   update_tooltip();
   renderer.render(scene, camera);
+  if (view_cube) view_cube.update(dt);   // 右上の立方体（メインのカメラと同じ向きで描く）
 }
 
 // =============================================================
@@ -2403,6 +2444,7 @@ async function main() {
   setup_controls();
   setup_pointer_events();
   setup_keyboard();
+  await setup_view_cube();
   set_mode(view_state.mode);
 
   // エラーがなければ読み込み表示を消す（エラーがあれば残して読めるようにする）
