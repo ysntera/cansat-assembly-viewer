@@ -1,0 +1,10 @@
+# 改行コードの決まり（Git が読む設定ファイル）
+# 文字のファイルは、リポジトリの中でも手元でも LF にそろえる。
+# Windows（CRLF）と Mac・Linux（LF）で改行の書き方が違っても、中身が同じなら「変更あり」にならない
+* text=auto eol=lf
+
+# 画像・動画・3Dモデルは文字ではないので、そのまま扱う（改行の変換をしない）
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.stl binary
