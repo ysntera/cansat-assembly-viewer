@@ -10,7 +10,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Orbitron:wght@700&display=swap">
-  <link rel="stylesheet" href="style.css">
+  <!-- ?v= は版の番号。公開ページを更新するたびに、下の main.js と同じ番号に増やす（README 7.1）。
+       番号が変わると、ブラウザは古い一時保存を使わずに新しいファイルを読み込む -->
+  <link rel="stylesheet" href="style.css?v=20261120">
   <!-- Three.js をバージョン固定で CDN から読み込む（ビルドツールは使わない） -->
   <script type="importmap">
     {
@@ -194,6 +196,7 @@
       document.getElementById("loading_errors").appendChild(item);
     }
   </script>
-  <script type="module" src="main.js"></script>
+  <!-- ?v= は版の番号（上の style.css と同じ番号にする）。main.js はこの番号を、部品のSTLを読むときにも使う -->
+  <script type="module" src="main.js?v=20261120"></script>
 </body>
 </html>

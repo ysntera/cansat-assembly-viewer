@@ -38,6 +38,10 @@ const PLACEMENTS_URL = "data/placements.json";
 const STEPS_URL = "data/steps.json";
 const MISSION_URL = "data/mission.json";
 const MODELS_DIR = "models/";
+// 版の番号：index.html で main.js を読むときに付けた ?v= の値（なければ空）。
+// 部品のSTLの URL にも付けて、更新したときに古い一時保存が使われないようにする
+const ASSET_VERSION = new URL(import.meta.url).searchParams.get("v") ?? "";
+const VERSION_QUERY = ASSET_VERSION ? `?v=${encodeURIComponent(ASSET_VERSION)}` : "";
 const PHOTOS_DIR = "photos/";
 
 const GROUND_Z_MM = -93;          // 地面の高さ（CAD座標の z。タイヤの最下点）
@@ -371,7 +375,7 @@ async function load_and_place_parts(parts, placements) {
   await Promise.all(
     files.map(async (file) => {
       try {
-        const url = MODELS_DIR + encodeURIComponent(file);
+        const url = MODELS_DIR + encodeURIComponent(file) + VERSION_QUERY;
         let geometry = await with_retry(() => loader.loadAsync(url));
         const part = parts.find((p) => p.file === file);
         if (part && part.split) {
