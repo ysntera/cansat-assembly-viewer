@@ -68,6 +68,14 @@ const HIGHLIGHT_INTENSITY = 0.55;   // 光らせる強さ（0〜1）
 const TRANSLUCENT_OPACITY = 0.2;    // 半透明にしたときの不透明度（0＝透明、1＝不透明）
 const CLICK_TOLERANCE_PX = 5;       // これ以上マウスが動いたら「クリック」ではなく「回転のドラッグ」とみなす
 
+// タッチパッドのピンチで拡大する定数（#22）
+//   Chrome・Edge は、ピンチを「Ctrl 付きのホイール」として deltaY = −100 × ln(指を広げた倍率) で送ってくる。
+//   OrbitControls はこれを普通のホイールと同じ量（100 で 5%）で扱うので、2倍に広げても約3.5%しか寄らない。
+//   そこで Ctrl 付きのホイールだけは、送られてきた量から倍率を逆算して、そのまま寄せる
+const PINCH_WHEEL_DELTA_PER_E = 100;  // deltaY がこの値のとき、倍率が e 倍（約2.7倍）になる
+const MAX_PINCH_WHEEL_DELTA = 25;     // 1回のイベントで使う量の上限（Ctrl＋マウスのホイール1目盛り＝100 で飛ばないように）
+const WHEEL_LINE_HEIGHT_PX = 40;      // ホイールの量が「行」の単位で来たとき（Firefox など）、1行を何pxとみなすか
+
 // 組み立てモードの定数
 const FLY_DISTANCE_MM = 80;         // 部品が飛んでくる前の位置（完成位置からの距離）。steps.json の distance で手順ごとに変えられる
 const FLY_DURATION_S = 1.0;         // 部品が飛んできて収まるまでの時間
@@ -2204,6 +2212,89 @@ function setup_pointer_events() {
 
   // 自分で視点を動かし始めたら、自動の動きを止め、以後は手順を変えても視点を動かさない
   controls.addEventListener("start", on_user_view_change);
+
+  setup_pinch_zoom();
+}
+
+// ---------------------------------------------------------------
+// タッチパッドのピンチで、指を広げた分だけ拡大する（#22）
+//   ・Chrome・Edge・Firefox：ピンチは「Ctrl 付きのホイール」として届く
+//   ・Mac の Safari　　　　：ピンチは gesturestart / gesturechange として届く（倍率 scale 付き）
+//   普通のマウスホイールと、スマホの2本指は、今までどおり OrbitControls に任せる
+// ---------------------------------------------------------------
+let active_touch_count = 0;     // 画面に触れている指の数（スマホで Safari の gesture と二重に拡大しないため）
+let gesture_start_distance = 0; // Safari のピンチを始めたときの、カメラと注視点の距離
+
+function setup_pinch_zoom() {
+  const canvas = renderer.domElement;
+
+  // OrbitControls も canvas でホイールを受け取るので、親の viewport で先に（capture で）受け取る
+  viewport_el.addEventListener("wheel", on_pinch_wheel, { capture: true, passive: false });
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "touch") active_touch_count += 1;
+  });
+  const release_touch = (event) => {
+    if (event.pointerType === "touch") active_touch_count = Math.max(0, active_touch_count - 1);
+  };
+  canvas.addEventListener("pointerup", release_touch);
+  canvas.addEventListener("pointercancel", release_touch);
+
+  canvas.addEventListener("gesturestart", on_gesture_start);
+  canvas.addEventListener("gesturechange", on_gesture_change);
+  canvas.addEventListener("gestureend", on_gesture_end);
+}
+
+// ズームしてよい状態か（OrbitControls の設定に合わせる）
+function can_zoom() {
+  return controls.enabled && controls.enableZoom;
+}
+
+// カメラと注視点の距離を変える（向きは変えない）。OrbitControls の距離の上下限も守る
+function set_camera_distance(distance) {
+  const clamped = THREE.MathUtils.clamp(distance, controls.minDistance, controls.maxDistance);
+  const offset = camera.position.clone().sub(controls.target);
+  if (offset.lengthSq() === 0) return;   // カメラと注視点が重なっていると向きが決まらない
+  camera.position.copy(controls.target).addScaledVector(offset.normalize(), clamped);
+  controls.update();
+}
+
+function on_pinch_wheel(event) {
+  // Ctrl なしの普通のホイール、3Dの画面以外（右上の ViewCube など）の上では何もしない
+  if (!event.ctrlKey || event.target !== renderer.domElement || !can_zoom()) return;
+  event.preventDefault();             // ブラウザのページ全体の拡大を止める
+  event.stopImmediatePropagation();   // OrbitControls の拡大（少しずつしか進まない）を動かさない
+
+  const delta_px = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * WHEEL_LINE_HEIGHT_PX : event.deltaY;
+  const delta = THREE.MathUtils.clamp(delta_px, -MAX_PINCH_WHEEL_DELTA, MAX_PINCH_WHEEL_DELTA);
+  // 指を広げる → deltaY が負 → 倍率が1より小さい → 距離が縮む（寄る）
+  const distance_scale = Math.exp(delta / PINCH_WHEEL_DELTA_PER_E);
+
+  controls.dispatchEvent({ type: "start" });   // マウスで回したときと同じく、自動の視点の移動を止める
+  set_camera_distance(camera.position.distanceTo(controls.target) * distance_scale);
+  controls.dispatchEvent({ type: "end" });
+}
+
+function on_gesture_start(event) {
+  // スマホの Safari では、2本指のタッチでも gesture が来る。そちらは OrbitControls が拡大するので何もしない
+  if (active_touch_count > 0 || !can_zoom()) return;
+  event.preventDefault();
+  gesture_start_distance = camera.position.distanceTo(controls.target);
+  controls.dispatchEvent({ type: "start" });
+}
+
+function on_gesture_change(event) {
+  if (active_touch_count > 0 || !can_zoom() || gesture_start_distance <= 0) return;
+  event.preventDefault();
+  // event.scale は、ピンチを始めてからの指の開き具合（2なら2倍に広げた）。広げた分だけ寄る
+  set_camera_distance(gesture_start_distance / event.scale);
+}
+
+function on_gesture_end(event) {
+  if (gesture_start_distance <= 0) return;   // スマホの2本指など、ここで始めていないピンチ
+  event.preventDefault();
+  gesture_start_distance = 0;
+  controls.dispatchEvent({ type: "end" });
 }
 
 // ---------------------------------------------------------------
