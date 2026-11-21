@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Orbitron:wght@700&display=swap">
   <!-- ?v= は版の番号。公開ページを更新するたびに、下の main.js と同じ番号に増やす（README 7.1）。
        番号が変わると、ブラウザは古い一時保存を使わずに新しいファイルを読み込む -->
-  <link rel="stylesheet" href="style.css?v=20261120c">
+  <link rel="stylesheet" href="style.css?v=20261121">
   <!-- Three.js をバージョン固定で CDN から読み込む（ビルドツールは使わない） -->
   <script type="importmap">
     {
@@ -90,7 +90,13 @@
               <button data-move="left">↰ 左旋回</button>
               <button data-move="forward">↑ 前進</button>
               <button data-move="right">↱ 右旋回</button>
+              <button data-move="backward">↓ 後退</button>
               <button data-move="stop">■ 止める</button>
+            </div>
+            <!-- 後退中・転倒中・起き上がり中の注意（ふだんは隠しておく） -->
+            <div class="tip_warning hidden" id="tip_warning" role="status">
+              <p id="tip_warning_text"></p>
+              <div class="tip_meter"><div class="tip_meter_bar" id="tip_meter_bar"></div></div>
             </div>
             <p class="guidance_status" id="remote_status"></p>
             <p class="note" id="drive_status"></p>
@@ -98,7 +104,9 @@
           </div>
 
           <p class="mechanism">モータ：Pololu製 25Dサイズ、ギア比75:1（型番3230）、無負荷で毎分100回転。モータの軸を、シャフトホルダでタイヤに直結しています。</p>
+          <p class="mechanism">後退すると、タイヤを回した反動で車体が回り、後ろのスタビライザが持ち上がって転倒することがあります。転倒しても、前進すれば反動が逆向きにかかってスタビライザが地面に戻り、走り続けられます。</p>
           <p class="provisional">仮：ゴールまでの距離と向きは、GNSS誘導と同じ仮の値です。画面では実際より速く走らせています</p>
+          <p class="provisional">仮：「後退を0.5秒続けると転倒する」と転倒・起き上がりの速さは、実機の動画から決めた目安です</p>
         </div>
 
         <!-- ===== ミッションの流れ（フェーズ） ===== -->
@@ -201,6 +209,6 @@
     }
   </script>
   <!-- ?v= は版の番号（上の style.css と同じ番号にする）。main.js はこの番号を、部品のSTLを読むときにも使う -->
-  <script type="module" src="main.js?v=20261120c"></script>
+  <script type="module" src="main.js?v=20261121"></script>
 </body>
 </html>

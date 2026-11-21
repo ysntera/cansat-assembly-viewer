@@ -97,9 +97,16 @@ const CHUTE_LEAN_SHIFT = new THREE.Vector3(0, 350, -300);     // 着地後にパ
 const CHUTE_AWAY_SHIFT = new THREE.Vector3(0, 900, 0);        // 分離後にパラシュートが離れていく量（エンベロープの分に加える）
 const NICHROME_RADIUS_MM = 1.5;     // ニクロム線の太さ（半径）
 const NICHROME_GLOW = 3.0;          // 電流を流したときの光り方の強さ
-const STABI_SEGMENTS = 40;          // スタビライザの帯を何区間に分けて曲げるか
+const STABI_SEGMENTS = 60;          // 展開中のスタビライザの帯を何区間に分けて曲げるか
 const STABI_COIL_CORE_MM = 3;       // 丸まったスタビライザの、いちばん内側の半径
 const STABI_COIL_THICKNESS_MM = 1.2; // 丸まったテープ1周ぶんの厚み（見た目用）
+
+// スタビライザ（コンベックステープ）の形を作る定数。寸法そのものは parts.json の stabilizer.tape にある
+const STABI_PATH_STEP_MM = 0.5;     // テープの中心線を、何mmごとの点で表すか
+const STABI_GEOMETRY_STEP_MM = 2;   // 部品の形（面）を、長さ方向に何mmごとに区切るか
+const STABI_WIDTH_DIVISIONS = 8;    // テープの幅方向の区切り（反り＝断面の丸みを出すため）
+const STABI_HOLDER_GAP_MM = 0.5;    // ホルダの下面とテープの間のすき間（面が重なってちらつかないように）
+const STABI_GROUND_GAP_MM = 0.5;    // 地面とテープ（先端）の間のすき間
 const SPIN_PART_IDS = ["tire_left", "tire_right", "shaftholder"];   // 走行で回す部品
 
 // 画面の下に出す操作のヒント（マウス用と、指で触る画面用）
@@ -414,24 +421,189 @@ async function load_and_place_parts(parts, placements) {
     const material = part.split
       ? [make_material(part.color), make_material(part.split.color)]
       : make_material(part.color);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = placement.name;
-    mesh.userData.part_id = part.id;
-    mesh.matrixAutoUpdate = false;               // 行列を直接与えるので自動計算を止める
-    mesh.userData.base_matrix = make_placement_matrix(placement);   // 組み上がった位置
-    mesh.userData.offset = new THREE.Vector3();  // 組み上がった位置からのずれ（CAD座標のmm）
-    mesh.userData.spin = 0;                      // 車軸まわりの回転角（走行でタイヤを回すときに使う）
-    // 組み上がった状態での部品の中心（CAD座標）
-    mesh.userData.center = geometry.boundingBox.clone()
-      .applyMatrix4(mesh.userData.base_matrix)
-      .getCenter(new THREE.Vector3());
-    mesh.matrix.copy(mesh.userData.base_matrix);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    vehicle.add(mesh);
-    meshes.push(mesh);
+    meshes.push(make_part_mesh(placement.name, part, geometry, material, make_placement_matrix(placement)));
   }
   return meshes;
+}
+
+// ---------------------------------------------------------------
+// 部品の Mesh を作って機体グループに入れる（STLの部品も、プログラムで作る部品も同じ形にそろえる）
+// ---------------------------------------------------------------
+function make_part_mesh(name, part, geometry, material, base_matrix) {
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = name;
+  mesh.userData.part_id = part.id;
+  mesh.matrixAutoUpdate = false;               // 行列を直接与えるので自動計算を止める
+  mesh.userData.base_matrix = base_matrix;     // 組み上がった位置
+  mesh.userData.offset = new THREE.Vector3();  // 組み上がった位置からのずれ（CAD座標のmm）
+  mesh.userData.spin = 0;                      // 車軸まわりの回転角（走行でタイヤを回すときに使う）
+  // 組み上がった状態での部品の中心（CAD座標）
+  mesh.userData.center = geometry.boundingBox.clone()
+    .applyMatrix4(base_matrix)
+    .getCenter(new THREE.Vector3());
+  mesh.matrix.copy(base_matrix);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  vehicle.add(mesh);
+  return mesh;
+}
+
+// =============================================================
+// スタビライザ（コンベックステープ）：STLがないので、寸法からプログラムで形を作る
+// =============================================================
+let stabilizer_shape = null;   // 作った形（中心線）。ミッションモードの展開・転倒でも使う
+const BISECTION_STEPS = 40;    // 二分法（範囲を半分ずつ狭めて答えを探す方法）をくり返す回数
+
+// ---------------------------------------------------------------
+// テープの中心線（テープの真ん中を通る線）を作る。横から見た y-z 面の中の線で、
+//   ① ホルダの下に押さえつけられた部分（水平）→ ② 下へ曲がる → ③ 斜め下へまっすぐ
+//   → ④ 水平へ戻る → ⑤ 地面に平らに着く先端（足）
+// の順につながる。theta は進む向き（後ろ向き＝+y から測った角度。下向きがマイナス）
+// ---------------------------------------------------------------
+function make_stabilizer_path(tape, holder_box) {
+  const x = (holder_box.min.x + holder_box.max.x) / 2;
+  const start_y = holder_box.min.y;                          // ホルダの前の端（ここからテープが押さえられている）
+  const start_z = holder_box.min.z - STABI_HOLDER_GAP_MM;    // ホルダの下面
+  const ground_z = GROUND_Z_MM + STABI_GROUND_GAP_MM;
+  const clamp_length = holder_box.max.y - start_y;           // ホルダに押さえられている長さ
+  const radius = tape.bend_radius_mm;
+  const foot = tape.foot_length_mm;
+  const drop = start_z - ground_z;                           // 下がる高さ
+
+  // 斜めの部分の角度 slope を探す：下がる高さ ＝ 曲がり2か所ぶん ＋ まっすぐな部分ぶん
+  //   tape.length_mm は「ホルダから出たところから先端まで」の長さ
+  const drop_at = (slope) => {
+    const straight = tape.length_mm - foot - 2 * radius * slope;
+    return 2 * radius * (1 - Math.cos(slope)) + straight * Math.sin(slope);
+  };
+  if (drop_at(Math.PI / 2) < drop) {
+    show_error("スタビライザが短すぎて、先端が地面に届きません（parts.json の stabilizer の tape を確認してください）");
+  }
+  let low = 0;
+  let high = Math.PI / 2;
+  for (let i = 0; i < BISECTION_STEPS; i++) {
+    const middle = (low + high) / 2;
+    if (drop_at(middle) < drop) low = middle; else high = middle;
+  }
+  const slope = high;
+  const bend_length = radius * slope;
+  const straight = tape.length_mm - foot - 2 * bend_length;
+
+  // 区間の境目（中心線の始まりから測った長さ）
+  const s_exit = clamp_length;                // ホルダから出る
+  const s_bent = s_exit + bend_length;        // 下へ曲がり終わる
+  const s_straight = s_bent + straight;       // まっすぐな部分の終わり
+  const s_foot = s_straight + bend_length;    // 水平に戻り終わる（ここから足）
+  const total = s_foot + foot;
+  const theta_at = (s) => {
+    if (s <= s_exit) return 0;
+    if (s <= s_bent) return -(s - s_exit) / radius;
+    if (s <= s_straight) return -slope;
+    if (s <= s_foot) return -slope + (s - s_straight) / radius;
+    return 0;
+  };
+
+  // 進む向きを少しずつ足し合わせて（積分して）、点の位置を求める
+  const count = Math.ceil(total / STABI_PATH_STEP_MM);
+  const ds = total / count;
+  const position = new THREE.Vector3(x, start_y, start_z);
+  const points = [{ position: position.clone(), theta: 0 }];
+  for (let i = 1; i <= count; i++) {
+    const middle_theta = theta_at((i - 0.5) * ds);   // 区間の真ん中の向きを使うと誤差が小さい
+    position.y += Math.cos(middle_theta) * ds;
+    position.z += Math.sin(middle_theta) * ds;
+    points.push({ position: position.clone(), theta: theta_at(i * ds) });
+  }
+  return { points, total, clamp_length, foot_start: s_foot, slope_rad: slope };
+}
+
+// 中心線の上で、始まりから長さ s の点（点と点の間は直線でつなぐ）
+function stabilizer_point_at(s) {
+  const points = stabilizer_shape.points;
+  const f = (THREE.MathUtils.clamp(s, 0, stabilizer_shape.total) / stabilizer_shape.total) * (points.length - 1);
+  const i = Math.min(Math.floor(f), points.length - 2);
+  const t = f - i;
+  return {
+    position: points[i].position.clone().lerp(points[i + 1].position, t),
+    theta: THREE.MathUtils.lerp(points[i].theta, points[i + 1].theta, t),
+  };
+}
+
+// ---------------------------------------------------------------
+// テープの面を作る。幅方向には反り（コンベックステープの断面の丸み）を付ける。
+// ホルダの下と先端の足は、押さえて平らにしてあるので反りなし。
+// 材料は2つ：0 ＝ テープ（白）、1 ＝ 先端の足（黒）
+// ---------------------------------------------------------------
+const STABI_CROWN_BLEND_MM = 10;   // 反りが付く・消えるまでの長さ
+
+function make_stabilizer_geometry(tape) {
+  const shape = stabilizer_shape;
+  const half_width = tape.width_mm / 2;
+  const rows = Math.ceil(shape.total / STABI_GEOMETRY_STEP_MM);
+  const cols = STABI_WIDTH_DIVISIONS;
+  const positions = [];
+  for (let r = 0; r <= rows; r++) {
+    const s = (shape.total * r) / rows;
+    const { position, theta } = stabilizer_point_at(s);
+    const crown = tape.crown_mm * Math.min(
+      THREE.MathUtils.smoothstep(s, shape.clamp_length, shape.clamp_length + STABI_CROWN_BLEND_MM),
+      1 - THREE.MathUtils.smoothstep(s, shape.foot_start - STABI_CROWN_BLEND_MM, shape.foot_start),
+    );
+    // テープの面に垂直で、上側を向く向き（進む向きを90°起こした向き）
+    const normal_y = -Math.sin(theta);
+    const normal_z = Math.cos(theta);
+    for (let c = 0; c <= cols; c++) {
+      const u = -1 + (2 * c) / cols;      // 幅方向の位置（-1 ＝ 右の端、1 ＝ 左の端）
+      const lift = crown * (1 - u * u);   // 真ん中が盛り上がる（放物線で近似）
+      positions.push(position.x + u * half_width, position.y + normal_y * lift, position.z + normal_z * lift);
+    }
+  }
+  // 四角形を2つの三角形に分けて面を張る。足の部分は別の材料（黒）にする
+  const tape_indices = [];
+  const foot_indices = [];
+  for (let r = 0; r < rows; r++) {
+    const s_middle = (shape.total * (r + 0.5)) / rows;
+    const list = s_middle >= shape.foot_start ? foot_indices : tape_indices;
+    for (let c = 0; c < cols; c++) {
+      const a = r * (cols + 1) + c;   // この区切りの点
+      const b = a + cols + 1;         // 次の区切りの、同じ幅位置の点
+      list.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex([...tape_indices, ...foot_indices]);
+  geometry.addGroup(0, tape_indices.length, 0);
+  geometry.addGroup(tape_indices.length, foot_indices.length, 1);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  return geometry;
+}
+
+// ---------------------------------------------------------------
+// STLのない部品（parts.json に "shape" がある部品）を、プログラムで作って置く
+// ---------------------------------------------------------------
+function add_generated_parts(parts, meshes) {
+  const added = [];
+  for (const part of parts.filter((p) => p.shape)) {
+    if (part.shape !== "stabilizer") {
+      show_error(`parts.json の "${part.id}" の shape "${part.shape}" は作り方が分かりません`);
+      continue;
+    }
+    const holder = meshes.find((mesh) => mesh.userData.part_id === part.tape.holder);
+    if (!holder) {
+      show_error(`スタビライザを留めるホルダ "${part.tape.holder}" が読み込めていないので、スタビライザを作れません`);
+      continue;
+    }
+    // ホルダが組み上がった位置での、ホルダを囲む箱（CAD座標）
+    const holder_box = holder.geometry.boundingBox.clone().applyMatrix4(holder.userData.base_matrix);
+    stabilizer_shape = make_stabilizer_path(part.tape, holder_box);
+    const geometry = make_stabilizer_geometry(part.tape);
+    const material = [make_material(part.color), make_material(part.foot_color)];
+    // 形はCAD座標で作ってあるので、置く位置はそのまま（単位行列）
+    added.push(make_part_mesh("Stabilizer", part, geometry, material, new THREE.Matrix4()));
+  }
+  return added;
 }
 
 // =============================================================
@@ -986,7 +1158,6 @@ const mission = {
   remote_last_distance: Infinity,   // 遠隔操作で、前のコマでのゴールまでの距離（近づいているかを調べる）
   props: null,             // 仮の形（キャリア・エンベロープ・パラシュートなど）
   vehicle_world: new THREE.Vector3(),   // 前のコマでの機体の位置（カメラを機体について動かすため）
-  stabi_curvature: 0,      // スタビライザの曲がり具合（先が地面に届くように計算で決める）
   drive: {
     x: 0, y: 0, yaw: 0,    // 機体の位置（CAD座標の mm）と向き（z軸まわりの角度。左に曲がるとプラス）
     move: "stop",          // いまの動き："forward" / "left" / "right" / "stop"
@@ -1090,20 +1261,22 @@ function build_mission_props(data) {
   );
   vehicle.add(props.tegus);
 
-  // ----- スタビライザ：伸びた部分（曲がった帯）と、まだ丸まっている部分（円筒）
-  const stabi = shapes.stabilizer;
+  // ----- スタビライザ（展開の途中だけ使う）：伸びた部分（帯）と、まだ丸まっている部分（円筒）。
+  //       形は部品のスタビライザ（parts.json の stabilizer）と同じ中心線に沿わせ、伸びきったら部品に切り替える
+  const stabi_part = find_part("stabilizer");
+  const stabi_width = stabi_part ? stabi_part.tape.width_mm : 0;
   const stabi_material = new THREE.MeshStandardMaterial({
-    color: stabi.color, metalness: 0.4, roughness: 0.4, side: THREE.DoubleSide,
+    color: stabi_part ? stabi_part.color : 0xdddddd, metalness: 0.4, roughness: 0.4, side: THREE.DoubleSide,
   });
   props.stabi_ribbon = new THREE.Mesh(make_ribbon_geometry(STABI_SEGMENTS), stabi_material);
   props.stabi_ribbon.frustumCulled = false;
   props.stabi_ribbon.castShadow = true;
-  const coil_geometry = new THREE.CylinderGeometry(1, 1, stabi.width, 24);
+  props.stabi_width = stabi_width;
+  const coil_geometry = new THREE.CylinderGeometry(1, 1, stabi_width, 24);
   coil_geometry.rotateZ(Math.PI / 2);   // 軸を x 方向にする（大きさは scale で半径を変える）
   props.stabi_coil = new THREE.Mesh(coil_geometry, stabi_material);
   props.stabi_coil.castShadow = true;
   vehicle.add(props.stabi_ribbon, props.stabi_coil);
-  mission.stabi_curvature = solve_stabilizer_curvature(stabi);
 
   // ----- GNSS誘導・カメラ誘導で使うもの（ゴールのコーンなど）
   build_guidance_props(data.guidance, props);
@@ -1249,70 +1422,47 @@ function make_ribbon_geometry(segments) {
 }
 
 // ---------------------------------------------------------------
-// スタビライザの形（円弧）。取り付け点から後ろ（+y）へ、だんだん下に曲がる帯。
-//   u：取り付け点からの長さ（mm）、curvature：曲がり具合（1mm進むごとに何ラジアン曲がるか）
-//   返す値：その点の位置と、進む向きの角度（y方向から測って、上向きがプラス）
+// スタビライザを、伸びた割合 deploy（0＝丸まったまま、1＝伸びきった）の形にする。
+//   ホルダに押さえられた部分は最初から出ていて、そこから先が中心線に沿って伸びていく。
+//   伸びきったら、帯と円筒を隠して、部品としてのスタビライザ（反り・黒い足つき）を見せる
 // ---------------------------------------------------------------
-function stabilizer_point(stabi, curvature, u) {
-  const anchor = vec3(stabi.anchor);
-  const theta0 = THREE.MathUtils.degToRad(stabi.start_angle_deg);
-  const theta = theta0 - curvature * u;
-  if (Math.abs(curvature) < 1e-9) {
-    return { position: anchor.add(new THREE.Vector3(0, u * Math.cos(theta0), u * Math.sin(theta0))), theta };
-  }
-  // 曲がり具合が一定の線（円弧）を、長さ u まで進んだ点（向きを積分した式）
-  const y = (Math.sin(theta0) - Math.sin(theta)) / curvature;
-  const z = (Math.cos(theta) - Math.cos(theta0)) / curvature;
-  return { position: anchor.add(new THREE.Vector3(0, y, z)), theta };
-}
+let stabilizer_mesh = null;   // 部品としてのスタビライザ（一度探したら覚えておく）
 
-// 伸びきったとき、先が地面（z = GROUND_Z_MM）に届くような曲がり具合を、二分法（範囲を半分ずつ狭める方法）で探す
-const BISECTION_STEPS = 40;
-const LOWEST_POINT_SAMPLES = 100;
-
-function solve_stabilizer_curvature(stabi) {
-  const theta0 = THREE.MathUtils.degToRad(stabi.start_angle_deg);
-  const lowest_z = (curvature) => {
-    let lowest = Infinity;
-    for (let i = 0; i <= LOWEST_POINT_SAMPLES; i++) {
-      lowest = Math.min(lowest, stabilizer_point(stabi, curvature, (stabi.length * i) / LOWEST_POINT_SAMPLES).position.z);
-    }
-    return lowest;
-  };
-  // 曲げすぎない上限：先がちょうど真下を向く曲がり具合
-  let high = (Math.PI / 2 + theta0) / stabi.length;
-  let low = 0;
-  if (lowest_z(low) <= GROUND_Z_MM) return 0;        // まっすぐでも届く
-  if (lowest_z(high) > GROUND_Z_MM) return high;     // 届かない（いちばん下まで曲げた形にする）
-  for (let i = 0; i < BISECTION_STEPS; i++) {
-    const middle = (low + high) / 2;
-    if (lowest_z(middle) > GROUND_Z_MM) low = middle; else high = middle;
-  }
-  return high;
-}
-
-// スタビライザを、伸びた割合 deploy（0＝丸まったまま、1＝伸びきった）の形にする
 function update_stabilizer(deploy) {
-  const stabi = mission.data.shapes.stabilizer;
   const props = mission.props;
-  const extended = stabi.length * deploy;          // 伸びた長さ
-  const remaining = stabi.length - extended;       // まだ丸まっている長さ
-  const half_width = stabi.width / 2;
+  if (!stabilizer_mesh) stabilizer_mesh = view_state.meshes.find((mesh) => mesh.userData.part_id === "stabilizer") ?? null;
+  if (!stabilizer_shape) {   // スタビライザを作れなかった（エラーは表示済み）
+    props.stabi_ribbon.visible = false;
+    props.stabi_coil.visible = false;
+    return;
+  }
+  const deployed = deploy >= 1;
+  if (stabilizer_mesh) stabilizer_mesh.visible = deployed;
+  if (deployed) {
+    props.stabi_ribbon.visible = false;
+    props.stabi_coil.visible = false;
+    return;
+  }
+
+  const shape = stabilizer_shape;
+  const extended = shape.clamp_length + (shape.total - shape.clamp_length) * deploy;   // 伸びた長さ
+  const remaining = shape.total - extended;                                            // まだ丸まっている長さ
+  const half_width = props.stabi_width / 2;
 
   // 伸びた部分（帯）
   const positions = props.stabi_ribbon.geometry.getAttribute("position");
   for (let i = 0; i <= STABI_SEGMENTS; i++) {
-    const { position } = stabilizer_point(stabi, mission.stabi_curvature, (extended * i) / STABI_SEGMENTS);
+    const { position } = stabilizer_point_at((extended * i) / STABI_SEGMENTS);
     positions.setXYZ(i * 2, position.x - half_width, position.y, position.z);
     positions.setXYZ(i * 2 + 1, position.x + half_width, position.y, position.z);
   }
   positions.needsUpdate = true;
   props.stabi_ribbon.geometry.computeVertexNormals();
-  props.stabi_ribbon.visible = extended > 0.5;
+  props.stabi_ribbon.visible = true;
 
-  // 丸まった部分（円筒）。残りが長いほど太い。帯の先の、曲がりの外側（下側）に付く
+  // 丸まった部分（円筒）。残りが長いほど太い。帯の先の下側に付く
   const coil_radius = Math.sqrt(STABI_COIL_CORE_MM ** 2 + (remaining * STABI_COIL_THICKNESS_MM) / Math.PI);
-  const tip = stabilizer_point(stabi, mission.stabi_curvature, extended);
+  const tip = stabilizer_point_at(extended);
   const outward = new THREE.Vector3(0, Math.sin(tip.theta), -Math.cos(tip.theta));
   props.stabi_coil.position.copy(tip.position).addScaledVector(outward, coil_radius);
   props.stabi_coil.scale.set(1, coil_radius, coil_radius);
@@ -1419,7 +1569,10 @@ function mission_pose(phase_index, t) {
       pose.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), mission.drive.yaw);
       if (action === "gnss_guidance") pose.guidance = "gnss";
       if (action === "camera_guidance") pose.guidance = "camera";
-      if (action === "remote") pose.guidance = "remote";   // ゴールのコーンと格子だけを出す
+      if (action === "remote") {
+        pose.guidance = "remote";   // ゴールのコーンと格子だけを出す
+        apply_tip_to_pose(pose);    // 後退で転倒しているときは、車軸のまわりに回す
+      }
       break;
 
     default:
@@ -1538,8 +1691,120 @@ const WHEEL_SPEED_RATIOS = {   // [x＜0 側（前から見て右）, x＞0 側�
   // その場で左へ回る：左右のタイヤを逆に回す（カメラでコーンを探すとき）。
   // 速く回るとコーンを見落としやすいので、ゆっくり回す
   spin_left: () => [SPIN_SPEED_RATIO, -SPIN_SPEED_RATIO],
+  backward: () => [-1, -1],        // 後退：左右のタイヤを両方とも逆に回す（遠隔操作だけで使う）
   stop: () => [0, 0],
 };
+
+// ---------------------------------------------------------------
+// 後退での転倒と、前進での復帰（遠隔操作）
+//   後退すると、タイヤを回した反動で車体が回り、後ろの尾（スタビライザ）が持ち上がる。
+//   後退を TIP_AFTER_S 秒続けると、車体が車軸のまわりに回って、スタビライザが真上を向く（転倒）。
+//   転倒しても、前進すると反動が逆向きにかかって、スタビライザが地面に戻る（復帰）。
+//   動きは、実機の動画（後退 → スタビライザが真上を向く → 前進で戻る）に合わせた
+// ---------------------------------------------------------------
+const TIP_AFTER_S = 0.5;           // 何秒後退を続けたら転倒するか
+const TIP_DURATION_S = 0.6;        // 転倒しきるまでの時間
+const RECOVER_DURATION_S = 0.8;    // 前進して起き上がるまでの時間
+const TIP_ANGLE_FALLBACK_DEG = 120; // スタビライザの形が分からないときの、転倒の角度
+
+const tip_state = {
+  reverse_s: 0,       // 後退を続けている時間
+  progress: 0,        // 転倒の具合（0＝普通に走れる姿勢、1＝スタビライザが真上を向いた）
+  tipped: false,      // 転倒しているか（前進で起き上がるまで）
+  recovering: false,  // 前進して起き上がっている途中か
+};
+const tip_warning_el = $("tip_warning");
+const tip_warning_text_el = $("tip_warning_text");
+const tip_meter_bar_el = $("tip_meter_bar");
+
+// 車軸の位置（CAD座標）：左右のタイヤの中心の平均。転倒するときは、ここを中心に回る
+let axle_center = null;
+function get_axle_center() {
+  if (axle_center) return axle_center;
+  const tires = view_state.meshes.filter((mesh) => mesh.userData.part_id.startsWith("tire_"));
+  axle_center = new THREE.Vector3();
+  if (tires.length === 0) return axle_center;
+  for (const mesh of tires) axle_center.add(mesh.userData.center);
+  axle_center.divideScalar(tires.length);
+  return axle_center;
+}
+
+// 転倒しきったときの角度：スタビライザのまっすぐな部分（斜め下向き）が、真上を向くまで回す
+function tip_angle_rad() {
+  return stabilizer_shape
+    ? Math.PI / 2 + stabilizer_shape.slope_rad
+    : THREE.MathUtils.degToRad(TIP_ANGLE_FALLBACK_DEG);
+}
+
+// 転倒の具合を、機体の姿（位置と向き）に足す。
+//   向き ＝ 走る向き（z軸まわり）× 転倒の向き（車軸 ＝ x軸まわり。後ろ＝+y が上＝+z へ回るのがプラス）
+//   位置 ＝ 車軸の位置が動かないように、回したぶんだけずらす（タイヤは地面に着いたまま）
+function apply_tip_to_pose(pose) {
+  if (tip_state.progress <= 0) return;
+  // 転倒はだんだん速く（倒れる感じ）、起き上がりはなめらかに
+  const eased = tip_state.recovering
+    ? THREE.MathUtils.smootherstep(tip_state.progress, 0, 1)
+    : tip_state.progress * tip_state.progress;
+  const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), tip_angle_rad() * eased);
+  const pivot = get_axle_center();
+  const shift = pivot.clone().sub(pivot.clone().applyQuaternion(tilt));
+  pose.position.add(shift.applyQuaternion(pose.quaternion));
+  pose.quaternion.multiply(tilt);
+}
+
+// 毎コマ：後退の時間を数え、転倒・復帰の動きを進める
+function update_tip(dt) {
+  const move = mission.drive.move;
+  if (tip_state.recovering) {
+    tip_state.progress = Math.max(0, tip_state.progress - dt / RECOVER_DURATION_S);
+    if (tip_state.progress === 0) tip_state.recovering = false;
+  } else if (tip_state.tipped) {
+    tip_state.progress = Math.min(1, tip_state.progress + dt / TIP_DURATION_S);
+    // 転倒しきったあとに前進すると、起き上がり始める
+    if (tip_state.progress === 1 && move === "forward") {
+      tip_state.tipped = false;
+      tip_state.recovering = true;
+    }
+  } else if (move === "backward") {
+    tip_state.reverse_s += dt;
+    if (tip_state.reverse_s >= TIP_AFTER_S) {
+      tip_state.tipped = true;
+      tip_state.reverse_s = 0;
+      set_drive_move("stop", false);   // 転倒したらタイヤは止める（前進を押すまで待つ）
+    }
+  } else {
+    tip_state.reverse_s = 0;   // 後退をやめたら、数え直し
+  }
+  update_tip_ui();
+}
+
+// 後退中・転倒中・起き上がり中の注意を出す
+function update_tip_ui() {
+  const backing = mission.drive.move === "backward" && !tip_state.tipped && !tip_state.recovering;
+  const show = backing || tip_state.tipped || tip_state.recovering;
+  tip_warning_el.classList.toggle("hidden", !show);
+  if (!show) return;
+  let text;
+  let meter;
+  if (tip_state.recovering) {
+    text = "前進して起き上がっています（スタビライザが地面に戻ります）";
+    meter = tip_state.progress;
+  } else if (tip_state.tipped) {
+    text = "⚠ 転倒しました（スタビライザが真上を向いています）。「↑ 前進」を押すと起き上がります";
+    meter = 1;
+  } else {
+    const left_s = Math.max(0, TIP_AFTER_S - tip_state.reverse_s);
+    text = `⚠ 後退中：続けると転倒します（あと ${left_s.toFixed(1)} 秒）`;
+    meter = tip_state.reverse_s / TIP_AFTER_S;
+  }
+  if (tip_warning_text_el.textContent !== text) tip_warning_text_el.textContent = text;
+  tip_meter_bar_el.style.width = `${meter * 100}%`;
+}
+
+function reset_tip() {
+  Object.assign(tip_state, { reverse_s: 0, progress: 0, tipped: false, recovering: false });
+  update_tip_ui();
+}
 
 function update_drive(dt) {
   const drive = mission.drive;
@@ -1587,10 +1852,13 @@ function integrate_drive(dt, speed_mm_s, inner_ratio) {
   drive.y += -Math.cos(drive.yaw) * forward_speed * dt;
 }
 
-const DRIVE_LABELS = { forward: "前進中", left: "左旋回中", right: "右旋回中", stop: "止まっています" };
+const DRIVE_LABELS = { forward: "前進中", left: "左旋回中", right: "右旋回中", backward: "後退中", stop: "止まっています" };
 
 function set_drive_move(move, by_user) {
   const drive = mission.drive;
+  // 転倒中・起き上がり中は、前進（起き上がる）と止めるだけを受け付ける
+  const tipping = tip_state.tipped || tip_state.recovering;
+  if (by_user && tipping && move !== "forward" && move !== "stop") return;
   if (by_user) drive.demo_active = false;   // ボタンを押したら、お手本の動きは終わり
   if (drive.move === move && !by_user) return;
   drive.move = move;
@@ -1599,13 +1867,19 @@ function set_drive_move(move, by_user) {
   });
   const left_speed = move === "left" ? "遅い" : "速い";
   const right_speed = move === "right" ? "遅い" : "速い";
-  drive_status_el.textContent = move === "stop"
-    ? `いま：${DRIVE_LABELS.stop}`
-    : `いま：${DRIVE_LABELS[move]}（左のタイヤ ${left_speed}・右のタイヤ ${right_speed}）${drive.demo_active ? "　※お手本の動き" : ""}`;
+  if (move === "stop") {
+    drive_status_el.textContent = `いま：${DRIVE_LABELS.stop}`;
+  } else if (move === "backward") {
+    drive_status_el.textContent = `いま：${DRIVE_LABELS.backward}（左右のタイヤを逆向きに回す）`;
+  } else {
+    drive_status_el.textContent = `いま：${DRIVE_LABELS[move]}（左のタイヤ ${left_speed}・右のタイヤ ${right_speed}）${drive.demo_active ? "　※お手本の動き" : ""}`;
+  }
+  update_tip_ui();
 }
 
 function reset_drive() {
   Object.assign(mission.drive, { x: 0, y: 0, yaw: 0, wheel_xneg: 0, wheel_xpos: 0, demo_time: 0, move: null });
+  reset_tip();   // スタート位置に戻すときは、転倒していても普通の姿勢に戻す
   mission.drive.demo_active = Boolean(mission.data.phases[mission.phase_index].demo);
   set_drive_move("stop", false);   // move を null にしてあるので、表示も必ず更新される
 }
@@ -1814,6 +2088,7 @@ function render_remote_ui() {
 function update_remote(dt) {
   const config = mission.data.remote;
   integrate_drive(dt, config.speed_mm_s, config.turn_inner_ratio);
+  update_tip(dt);   // 後退の時間を数え、転倒・復帰を進める
 
   const distance = distance_to_goal(mission.drive.x, mission.drive.y);
   // コーンに近づく向きに動いていて、前面が触れたら止める（離れる向きなら、そのまま動ける）
@@ -2519,6 +2794,7 @@ async function main() {
   view_state.steps = steps;
   render_legend(parts);
   const meshes = await load_and_place_parts(parts, placements);
+  meshes.push(...add_generated_parts(parts, meshes));   // スタビライザ（STLなし）は、ホルダの位置から形を作る
   view_state.meshes = meshes;
   compute_explode_offsets(meshes);
   assign_steps_to_meshes(steps, meshes);

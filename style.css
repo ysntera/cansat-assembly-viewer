@@ -587,3 +587,19 @@ button { font-family: inherit; }
   .control input[type="range"] { width: 110px; }
   .photos img { width: 120px; height: 72px; }
 }
+
+/* ===== 遠隔操作：後退と転倒の注意 ===== */
+/* 後退ボタンは「止める」の上に、横いっぱいで置く */
+.drive_buttons button[data-move="backward"] { grid-column: 1 / -1; }
+.tip_warning {
+  padding: 8px 10px;
+  border-left: 4px solid #d84315;
+  border-radius: 0 8px 8px 0;
+  background: #fdecea;
+  color: #8a1c0b;
+  font-size: 13px;
+  font-weight: 700;
+}
+.tip_warning p { margin: 0 0 6px; }
+.tip_meter { height: 6px; border-radius: 3px; background: #f5c6bd; overflow: hidden; }
+.tip_meter_bar { height: 100%; width: 0; background: #d84315; }
