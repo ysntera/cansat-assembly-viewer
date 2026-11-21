@@ -55,7 +55,7 @@
       "duration_s": 4,
       "text": "エンベロープが外れると、コンベックステープ製のスタビライザが、自分のばねの力で伸びます（モータなどは使いません）。",
       "detail": "スタビライザ：コンベックステープ（金属製のメジャーのテープ）でできた、機体の後ろの尾。役割は2つ。①タイヤを回したときの反動で車体が空回りするのを防ぐ ②前向きにひっくり返る（転覆する）のを防ぐ。",
-      "provisional": "スタビライザの形・寸法（幅20mm・長さ120mmの湾曲した帯）は仮です",
+      "provisional": "スタビライザの寸法（幅25mm・ホルダから先端まで180mm）は写真から読み取った仮の値です。収納のときの巻き方は仮の見た目です",
       "camera": { "offset": [380, 330, 160], "look": [0, 60, -45] }
     },
     {
@@ -99,7 +99,7 @@
     "envelope": { "radius": 95, "length": 215, "center": [2.5, 0, -12], "color": "#e9eef5", "opacity": 0.35, "open_angle_deg": 110 },
     "parachute": { "diagonal": 1400, "hole_diameter": 140, "height": 260, "knot_height": 450, "rim_above_knot": 800, "color": "#ff7a1a" },
     "nichrome": { "points": [[-35, -50, 30], [35, -50, 30]], "length": 20 },
-    "stabilizer": { "width": 20, "length": 120, "anchor": [0, 63, -13], "start_angle_deg": -20, "color": "#d9b310" }
+    "_stabilizer": "スタビライザの形・寸法は parts.json の stabilizer（tape）を使う"
   },
 
   "drive": { "speed_mm_s": 80, "turn_inner_ratio": 0.3, "wheel_radius_mm": 81, "track_mm": 175 },
