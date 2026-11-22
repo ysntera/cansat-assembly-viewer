@@ -603,3 +603,54 @@ button { font-family: inherit; }
 .tip_warning p { margin: 0 0 6px; }
 .tip_meter { height: 6px; border-radius: 3px; background: #f5c6bd; overflow: hidden; }
 .tip_meter_bar { height: 100%; width: 0; background: #d84315; }
+
+/* =============================================================
+   上の帯の右側：モード切り替えと、GitHub へのリンク（アイコン）
+   ============================================================= */
+.topbar_right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* モード切り替えとの間に、細い区切り線を入れる */
+.ext_links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+}
+.ext_link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch_size);
+  height: var(--touch_size);
+  border-radius: 6px;
+  color: #c9d6e6;
+}
+.ext_link:hover { background: rgba(255, 255, 255, 0.08); color: var(--gold); }
+.ext_link:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+/* スマホ：帯が狭いので、すき間とアイコンの幅を詰める */
+@media (max-width: 720px) {
+  .topbar_right { flex: 1; justify-content: flex-end; gap: 4px; }
+  .ext_links { gap: 0; padding-left: 4px; }
+  .ext_link { width: 30px; }
+  .ext_link svg { width: 18px; height: 18px; }
+}
+
+/* とても狭い画面（420px以下）：アイコンを置いたぶん、モードの文字が2行に折れないよう、
+   ロゴの横の「組立ビューア」の文字を隠す（ロゴは残す。画面の読み上げでは読まれるようにする） */
+@media (max-width: 420px) {
+  .topbar h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .mode { white-space: nowrap; }
+}

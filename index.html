@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Orbitron:wght@700&display=swap">
   <!-- ?v= は版の番号。公開ページを更新するたびに、下の main.js と同じ番号に増やす（README 7.1）。
        番号が変わると、ブラウザは古い一時保存を使わずに新しいファイルを読み込む -->
-  <link rel="stylesheet" href="style.css?v=20261121">
+  <link rel="stylesheet" href="style.css?v=20261122b">
   <!-- Three.js をバージョン固定で CDN から読み込む（ビルドツールは使わない） -->
   <script type="importmap">
     {
@@ -33,12 +33,31 @@
         <h1>組立ビューア</h1>
       </div>
     </div>
-    <!-- モード切り替え -->
-    <nav class="modes">
-      <button class="mode active" data-mode="assembly">組み立て</button>
-      <button class="mode" data-mode="parts">部品を見る</button>
-      <button class="mode" data-mode="mission">ミッション</button>
-    </nav>
+    <div class="topbar_right">
+      <!-- モード切り替え -->
+      <nav class="modes">
+        <button class="mode active" data-mode="assembly">組み立て</button>
+        <button class="mode" data-mode="parts">部品を見る</button>
+        <button class="mode" data-mode="mission">ミッション</button>
+      </nav>
+      <!-- 外へのリンク（GitHub）：ソースと説明書（README）、不具合・要望を書く場所（Issue）。新しいタブで開く -->
+      <nav class="ext_links" aria-label="GitHub へのリンク">
+        <a class="ext_link" href="https://github.com/ysntera/cansat-assembly-viewer" target="_blank" rel="noopener"
+           title="GitHub：このページのソースと説明書（README）" aria-label="GitHub：このページのソースと説明書（新しいタブで開く）">
+          <!-- GitHub のマーク -->
+          <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+        </a>
+        <a class="ext_link" href="https://github.com/ysntera/cansat-assembly-viewer/issues" target="_blank" rel="noopener"
+           title="不具合・要望を送る（GitHub の Issue。書くには GitHub のアカウントが必要）" aria-label="不具合・要望を送る（GitHub の Issue、新しいタブで開く）">
+          <!-- 吹き出しに「！」：気づいたことを知らせる -->
+          <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round">
+            <path d="M2.6 1.8h10.8a1.4 1.4 0 0 1 1.4 1.4v6.9a1.4 1.4 0 0 1-1.4 1.4H8.2l-3.4 2.8v-2.8H2.6a1.4 1.4 0 0 1-1.4-1.4V3.2a1.4 1.4 0 0 1 1.4-1.4Z"/>
+            <path d="M8 4.3v3.3"/>
+            <circle cx="8" cy="9.3" r="0.35" fill="currentColor"/>
+          </svg>
+        </a>
+      </nav>
+    </div>
   </header>
 
   <main class="layout">
@@ -209,6 +228,6 @@
     }
   </script>
   <!-- ?v= は版の番号（上の style.css と同じ番号にする）。main.js はこの番号を、部品のSTLを読むときにも使う -->
-  <script type="module" src="main.js?v=20261121"></script>
+  <script type="module" src="main.js?v=20261122b"></script>
 </body>
 </html>
