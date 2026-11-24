@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Orbitron:wght@700&display=swap">
   <!-- ?v= は版の番号。公開ページを更新するたびに、下の main.js と同じ番号に増やす（README 7.1）。
        番号が変わると、ブラウザは古い一時保存を使わずに新しいファイルを読み込む -->
-  <link rel="stylesheet" href="style.css?v=20261124b">
+  <link rel="stylesheet" href="style.css?v=20261124c">
   <!-- Three.js をバージョン固定で CDN から読み込む（ビルドツールは使わない） -->
   <script type="importmap">
     {
@@ -41,7 +41,17 @@
         <button class="mode" data-mode="mission">ミッション</button>
       </nav>
       <!-- 外へのリンク（GitHub）：ソースと説明書（README）、不具合・要望を書く場所（Issue）。新しいタブで開く -->
-      <nav class="ext_links" aria-label="GitHub へのリンク">
+      <nav class="ext_links" aria-label="リンク">
+        <!-- いま見ている画面（手順・フェーズ・部品）のリンクをコピーする（#16）。押すと「コピーしました」と出る -->
+        <button class="ext_link copy_link" id="btn_copy_link" type="button"
+                title="この画面のリンクをコピー（チームに送ると、同じ画面が開きます）" aria-label="この画面のリンクをコピー">
+          <!-- 鎖のマーク（リンク） -->
+          <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M6.6 9.4a2.6 2.6 0 0 0 3.7 0l2.4-2.4a2.6 2.6 0 0 0-3.7-3.7l-0.9 0.9"/>
+            <path d="M9.4 6.6a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l0.9-0.9"/>
+          </svg>
+          <span class="copy_link_done" id="copy_link_done" role="status" aria-live="polite"></span>
+        </button>
         <a class="ext_link" href="https://github.com/ysntera/cansat-assembly-viewer" target="_blank" rel="noopener"
            title="GitHub：このページのソースと説明書（README）" aria-label="GitHub：このページのソースと説明書（新しいタブで開く）">
           <!-- GitHub のマーク -->
@@ -110,7 +120,7 @@
         <div id="panel_remote" class="hidden">
           <p class="step_counter">遠隔操作</p>
           <h2>機体を走らせてみる</h2>
-          <p>左右のモータでタイヤを回して走ります。左右の回転の速さを変えると曲がります。下のボタンで動かして、ゴールの赤いコーンを目指しましょう。</p>
+          <p>左右のモータでタイヤを回して走ります。左右の回転の速さを変えると曲がります。下のボタンで動かして、ゴールの赤いコーンを目指しましょう。ボタンを長押しすると押している間だけ動き、短く押すとその動きが続きます。</p>
 
           <!-- 機体を動かすボタン（スマホでもすぐ押せるよう、説明文のすぐ下に置く） -->
           <div class="drive_controls" id="drive_controls">
@@ -121,6 +131,8 @@
               <button data-move="backward">↓ 後退</button>
               <button data-move="stop">■ 止める</button>
             </div>
+            <!-- キーボードの案内（PCだけ。スマホの幅では style.css で隠す） -->
+            <p class="note drive_keys_hint">キーボード：<kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> か <kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> を押している間だけ動きます</p>
             <!-- 後退中・転倒中・起き上がり中の注意（ふだんは隠しておく） -->
             <div class="tip_warning hidden" id="tip_warning" role="status">
               <p id="tip_warning_text"></p>
@@ -237,6 +249,6 @@
     }
   </script>
   <!-- ?v= は版の番号（上の style.css と同じ番号にする）。main.js はこの番号を、部品のSTLを読むときにも使う -->
-  <script type="module" src="main.js?v=20261124b"></script>
+  <script type="module" src="main.js?v=20261124c"></script>
 </body>
 </html>

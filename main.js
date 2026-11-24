@@ -75,6 +75,10 @@ const CLICK_TOLERANCE_PX = 5;       // これ以上マウスが動いたら「�
 const PINCH_WHEEL_DELTA_PER_E = 100;  // deltaY がこの値のとき、倍率が e 倍（約2.7倍）になる
 const MAX_PINCH_WHEEL_DELTA = 25;     // 1回のイベントで使う量の上限（Ctrl＋マウスのホイール1目盛り＝100 で飛ばないように）
 const WHEEL_LINE_HEIGHT_PX = 40;      // ホイールの量が「行」の単位で来たとき（Firefox など）、1行を何pxとみなすか
+const WHEEL_DELTA_PER_NOTCH = 100;    // 普通のマウスホイール1目盛りの deltaY（Chrome・Edge で表示倍率100%のとき）
+const WHEEL_ZOOM_RATIO_PER_NOTCH = 0.95; // 1目盛りで、カメラと注視点の距離を何倍にするか（OrbitControls と同じ）
+const MAX_WHEEL_NOTCHES = 3;          // 1回のイベントで使う目盛りの上限（勢いよく回しても飛びすぎないように）
+const MIN_CAMERA_DISTANCE_MM = 20;    // カメラが注視点にこれ以上近づかない（機体の中に入り込んで戻れなくならないように）
 
 // 組み立てモードの定数
 const FLY_DISTANCE_MM = 80;         // 部品が飛んでくる前の位置（完成位置からの距離）。steps.json の distance で手順ごとに変えられる
@@ -217,6 +221,7 @@ scene.background = new THREE.Color(0xeef2f7);   // 3Dの背景（style.css の -
 const camera = new THREE.PerspectiveCamera(CAMERA_FOV_DEG, 1, 1, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;   // 手を離したあと少しすべるように止まる
+controls.minDistance = MIN_CAMERA_DISTANCE_MM;   // スマホの2本指で寄りすぎても、注視点の手前で止まる（#24）
 
 // CAD座標（z が上）の部品をすべてこの中に入れる。回転はここに1回だけかける
 const model_root = new THREE.Group();
@@ -931,6 +936,7 @@ function set_mode(mode) {
     // ミッションで機体が上空や遠くにいたときは、視点を機体の近くに戻す
     if (previous_mode === "mission") reset_view();
   }
+  update_location_hash();   // URL も、このモードに合わせる（#16）
 }
 
 // =============================================================
@@ -1026,6 +1032,7 @@ function go_to_step(index) {
   }
 
   render_step_panel();
+  update_location_hash();   // URL も、この手順に合わせる（#16）
 }
 
 // ---------------------------------------------------------------
@@ -1791,7 +1798,7 @@ function update_tip_ui() {
     text = "前進して起き上がっています（スタビライザが地面に戻ります）";
     meter = tip_state.progress;
   } else if (tip_state.tipped) {
-    text = "⚠ 転倒しました（スタビライザが真上を向いています）。「↑ 前進」を押すと起き上がります";
+    text = "⚠ 転倒しました（スタビライザが真上を向いています）。「↑ 前進」（↑キー・Wキー）を押すと起き上がります";
     meter = 1;
   } else {
     const left_s = Math.max(0, TIP_AFTER_S - tip_state.reverse_s);
@@ -1876,6 +1883,93 @@ function set_drive_move(move, by_user) {
     drive_status_el.textContent = `いま：${DRIVE_LABELS[move]}（左のタイヤ ${left_speed}・右のタイヤ ${right_speed}）${drive.demo_active ? "　※お手本の動き" : ""}`;
   }
   update_tip_ui();
+}
+
+// ---------------------------------------------------------------
+// 遠隔操作を、ラジコンのように「押している間だけ」動かす（#15）
+//   ・キーボード：矢印キー・W A S D を押している間だけ動き、離すと止まる
+//   ・ボタン　　：長押しすると押している間だけ動き、指（マウス）を離すと止まる
+//                 短く押したとき（タップ・クリック）は、今までどおりその動きが続く（「止める」で止まる）
+//   いくつか同時に押しているときは、あとから押したものを優先し、離したら前に押していたものに戻る
+// ---------------------------------------------------------------
+const DRIVE_KEY_MOVES = {
+  ArrowUp: "forward", KeyW: "forward",
+  ArrowDown: "backward", KeyS: "backward",
+  ArrowLeft: "left", KeyA: "left",
+  ArrowRight: "right", KeyD: "right",
+};
+const TAP_MAX_MS = 300;   // これより短く押したら「タップ」（動きを続ける）、長ければ「長押し」（離すと止まる）
+
+// いま押されているもの（押した順）。source はキーの名前か、"pointer_番号"
+let held_drive_inputs = [];
+
+function remote_active() {
+  return view_state.mode === "mission" && mission.remote;
+}
+
+// 押した：その動きにする
+function press_drive_input(source, move) {
+  held_drive_inputs = held_drive_inputs.filter((input) => input.source !== source);
+  held_drive_inputs.push({ source, move });
+  set_drive_move(move, true);
+}
+
+// 離した：まだ押しているものがあればその動きに戻し、なければ止める
+//   keep_moving = true（ボタンのタップ）なら、止めずにいまの動きを続ける
+function release_drive_input(source, keep_moving = false) {
+  const was_held = held_drive_inputs.some((input) => input.source === source);
+  held_drive_inputs = held_drive_inputs.filter((input) => input.source !== source);
+  if (!was_held || keep_moving || !remote_active()) return;
+  const latest = held_drive_inputs[held_drive_inputs.length - 1];
+  set_drive_move(latest ? latest.move : "stop", true);
+}
+
+// 遠隔操作をやめたとき・ウィンドウから離れたとき：押しているものを全部忘れる
+function clear_drive_inputs() {
+  held_drive_inputs = [];
+}
+
+// キーボード。遠隔操作の画面のときだけ使い、使ったら true を返す（← → でフェーズが変わらないように）
+function handle_drive_key(event, pressed) {
+  const move = DRIVE_KEY_MOVES[event.code];
+  if (!move || !remote_active()) return false;
+  if (event.ctrlKey || event.altKey || event.metaKey) return false;   // ブラウザのショートカットは邪魔しない
+  event.preventDefault();   // 矢印キーでページがスクロールしないように
+  if (!pressed) {
+    release_drive_input(event.code);
+  } else if (!event.repeat) {   // 押しっぱなしで繰り返し届くイベントは無視する
+    press_drive_input(event.code, move);
+  }
+  return true;
+}
+
+// 動きのボタン（前進・左旋回・右旋回・後退）を、タップでも長押しでも使えるようにする
+function setup_drive_button(button) {
+  const move = button.dataset.move;
+  let pressed_at = 0;
+
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;   // 左クリック・指だけ
+    try {
+      button.setPointerCapture(event.pointerId);   // ボタンの外で離しても、離したことが分かるように
+    } catch (err) {
+      // まれに捕まえられないことがある（その指がもう離れているなど）。捕まえなくても動きは決められる
+    }
+    pressed_at = performance.now();
+    press_drive_input(`pointer_${event.pointerId}`, move);
+  });
+  const on_release = (event) => {
+    const is_tap = performance.now() - pressed_at < TAP_MAX_MS;
+    release_drive_input(`pointer_${event.pointerId}`, is_tap && event.type === "pointerup");
+  };
+  button.addEventListener("pointerup", on_release);
+  button.addEventListener("pointercancel", on_release);
+  // Tab キーで選んで Enter・スペースを押したとき（マウス・指ではない click）は、今までどおり動きを続ける
+  button.addEventListener("click", (event) => {
+    if (event.detail === 0) set_drive_move(move, true);
+  });
+  // スマホで長押ししたときに、メニュー（コピーなど）が出ないようにする
+  button.addEventListener("contextmenu", (event) => event.preventDefault());
 }
 
 function reset_drive() {
@@ -2075,6 +2169,7 @@ function set_remote(on) {
 // 遠隔操作かどうかに合わせて、右の欄と下の帯の表示を切り替える
 function render_remote_ui() {
   const on = mission.remote;
+  clear_drive_inputs();   // 切り替えたら、押しているキー・ボタンは忘れる
   panel_remote_el.classList.toggle("hidden", !on);
   panel_sequence_el.classList.toggle("hidden", on);
   document.querySelectorAll("#bar_mission .sequence_only").forEach((element) => {
@@ -2083,6 +2178,7 @@ function render_remote_ui() {
   btn_remote_el.setAttribute("aria-pressed", String(on));
   btn_remote_el.textContent = on ? "↩ ミッションに戻る" : "🎮 遠隔操作";
   if (on) panel_remote_el.closest(".panel").scrollTop = 0;
+  if (view_state.mode === "mission") update_location_hash();   // URL も #remote ⇔ #mission-… に（#16）
 }
 
 // 毎コマ：ボタンの動きのまま走らせ、前面がコーンに触れたら止める
@@ -2141,6 +2237,7 @@ function go_to_phase(index) {
   stop_camera_motion();
   if (mission.follow_camera && phase.camera) move_camera_relative(phase.camera);
   render_phase_panel();
+  update_location_hash();   // URL も、このフェーズに合わせる（#16）
 }
 
 // ---------------------------------------------------------------
@@ -2385,6 +2482,7 @@ function select_part(part_id) {
   if (part_id === null) view_state.isolate = false;   // 選択をやめたら全部品を表示に戻す
   render_parts_panel();
   apply_appearance();
+  update_location_hash();   // URL も、選んだ部品に合わせる（#16）
 }
 
 // ---------------------------------------------------------------
@@ -2496,7 +2594,8 @@ function setup_pointer_events() {
 // タッチパッドのピンチで、指を広げた分だけ拡大する（#22）
 //   ・Chrome・Edge・Firefox：ピンチは「Ctrl 付きのホイール」として届く
 //   ・Mac の Safari　　　　：ピンチは gesturestart / gesturechange として届く（倍率 scale 付き）
-//   普通のマウスホイールと、スマホの2本指は、今までどおり OrbitControls に任せる
+//   普通のマウスホイールも、ここで自分で計算する（#24。理由は on_viewport_wheel の説明）
+//   スマホの2本指は、今までどおり OrbitControls に任せる
 // ---------------------------------------------------------------
 let active_touch_count = 0;     // 画面に触れている指の数（スマホで Safari の gesture と二重に拡大しないため）
 let gesture_start_distance = 0; // Safari のピンチを始めたときの、カメラと注視点の距離
@@ -2505,7 +2604,7 @@ function setup_pinch_zoom() {
   const canvas = renderer.domElement;
 
   // OrbitControls も canvas でホイールを受け取るので、親の viewport で先に（capture で）受け取る
-  viewport_el.addEventListener("wheel", on_pinch_wheel, { capture: true, passive: false });
+  viewport_el.addEventListener("wheel", on_viewport_wheel, { capture: true, passive: false });
 
   canvas.addEventListener("pointerdown", (event) => {
     if (event.pointerType === "touch") active_touch_count += 1;
@@ -2535,20 +2634,36 @@ function set_camera_distance(distance) {
   controls.update();
 }
 
-function on_pinch_wheel(event) {
-  // Ctrl なしの普通のホイール、3Dの画面以外（右上の ViewCube など）の上では何もしない
-  if (!event.ctrlKey || event.target !== renderer.domElement || !can_zoom()) return;
-  event.preventDefault();             // ブラウザのページ全体の拡大を止める
-  event.stopImmediatePropagation();   // OrbitControls の拡大（少しずつしか進まない）を動かさない
+// ホイール（ピンチ＝Ctrl 付きと、普通のマウスホイールの両方）で、カメラを寄せる・離す
+//   普通のホイールも OrbitControls に任せない（#24）。OrbitControls（three.js 0.160.0）は
+//   ホイールの量を「100 × devicePixelRatio を整数に切り捨てた値」で割るので、
+//   ブラウザの表示倍率を下げて devicePixelRatio が1より小さくなると 0 で割ってしまい、カメラが壊れる
+function on_viewport_wheel(event) {
+  // 3Dの画面以外（右上の ViewCube など）の上では何もしない
+  if (event.target !== renderer.domElement || !can_zoom()) return;
+  event.preventDefault();             // ページのスクロール・ページ全体の拡大を止める
+  event.stopImmediatePropagation();   // OrbitControls のホイールの処理を動かさない
 
   const delta_px = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * WHEEL_LINE_HEIGHT_PX : event.deltaY;
-  const delta = THREE.MathUtils.clamp(delta_px, -MAX_PINCH_WHEEL_DELTA, MAX_PINCH_WHEEL_DELTA);
-  // 指を広げる → deltaY が負 → 倍率が1より小さい → 距離が縮む（寄る）
-  const distance_scale = Math.exp(delta / PINCH_WHEEL_DELTA_PER_E);
+  // deltaY が正（手前に回す・指を閉じる）→ 倍率が1より大きい → 距離が伸びる（離れる）
+  const distance_scale = event.ctrlKey ? pinch_distance_scale(delta_px) : mouse_wheel_distance_scale(delta_px);
 
   controls.dispatchEvent({ type: "start" });   // マウスで回したときと同じく、自動の視点の移動を止める
   set_camera_distance(camera.position.distanceTo(controls.target) * distance_scale);
   controls.dispatchEvent({ type: "end" });
+}
+
+// タッチパッドのピンチ：指を広げた分だけ寄る（#22）
+function pinch_distance_scale(delta_px) {
+  const delta = THREE.MathUtils.clamp(delta_px, -MAX_PINCH_WHEEL_DELTA, MAX_PINCH_WHEEL_DELTA);
+  return Math.exp(delta / PINCH_WHEEL_DELTA_PER_E);
+}
+
+// 普通のマウスホイール：1目盛り（deltaY ＝ 100）で、OrbitControls と同じ 0.95 倍ずつ寄る・離れる
+//   画面の細かさ（devicePixelRatio）では割らないので、どの画面・表示倍率でも同じ速さになる
+function mouse_wheel_distance_scale(delta_px) {
+  const notches = THREE.MathUtils.clamp(delta_px / WHEEL_DELTA_PER_NOTCH, -MAX_WHEEL_NOTCHES, MAX_WHEEL_NOTCHES);
+  return Math.pow(WHEEL_ZOOM_RATIO_PER_NOTCH, -notches * controls.zoomSpeed);
 }
 
 function on_gesture_start(event) {
@@ -2624,8 +2739,19 @@ async function setup_view_cube() {
 
 // ---------------------------------------------------------------
 // キーボード：← → で手順を移動、Esc で選択の解除・写真を閉じる
+//   遠隔操作の画面では、矢印キー・W A S D で機体を走らせる（#15。handle_drive_key）
 // ---------------------------------------------------------------
 function setup_keyboard() {
+  window.addEventListener("keyup", (event) => {
+    handle_drive_key(event, false);
+  });
+  // キーを押したままほかのウィンドウへ移ると keyup が届かないので、止めておく
+  window.addEventListener("blur", () => {
+    const was_holding = held_drive_inputs.length > 0;
+    clear_drive_inputs();
+    if (was_holding && remote_active()) set_drive_move("stop", true);
+  });
+
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       if (!lightbox_el.classList.contains("hidden")) {
@@ -2638,6 +2764,7 @@ function setup_keyboard() {
     // スライダーなどを操作中の矢印キーは、そちらに任せる
     const tag = event.target.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (handle_drive_key(event, true)) return;   // 遠隔操作の画面なら、キーで走らせる
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (step === 0) return;
     if (view_state.mode === "assembly") go_to_step(view_state.step_index + step);
@@ -2707,7 +2834,15 @@ function setup_controls() {
   });
   btn_remote_el.addEventListener("click", () => set_remote(!mission.remote));
   drive_controls_el.querySelectorAll("button[data-move]").forEach((button) => {
-    button.addEventListener("click", () => set_drive_move(button.dataset.move, true));
+    if (button.dataset.move === "stop") {
+      // 「止める」：押しているものも忘れて、止める
+      button.addEventListener("click", () => {
+        clear_drive_inputs();
+        set_drive_move("stop", true);
+      });
+    } else {
+      setup_drive_button(button);   // タップで動きを続ける・長押しで押している間だけ動く（#15）
+    }
   });
   $("btn_drive_reset").addEventListener("click", () => {
     reset_drive();
@@ -2901,6 +3036,125 @@ function animate() {
 // =============================================================
 // はじめに実行する処理
 // =============================================================
+// =============================================================
+// URL で見せる画面を指定する（#16）。URL の「#」から後ろに、いまの画面を書く
+//   #assembly-4-2         組み立ての手順 4-2（steps.json の id）
+//   #mission-7            ミッションのフェーズ 7（mission.json の id）
+//   #parts-camera_module  部品を見るモードで、その部品（parts.json の id）を選ぶ。#parts だけなら選ばない
+//   #remote               遠隔操作
+//   ・画面を切り替えたら、アドレスバーの URL も合わせて変える（history.replaceState を使い、戻るの履歴は増やさない）
+//   ・ない番号・ない部品・読めない書き方のときは、エラーにせず、そのモードの最初（読めなければ最初の画面）を出す
+// =============================================================
+let location_hash_ready = false;   // 最初の画面を出し終わるまでは、URL を書き換えない（開いた URL を消さないため）
+const COPY_DONE_SHOW_MS = 1800;    // 「コピーしました」を出しておく時間
+
+// いまの画面を表す「#…」を作る
+function current_location_hash() {
+  const mode = view_state.mode;
+  if (mode === "assembly") {
+    const step = view_state.steps[view_state.step_index];
+    return step ? `#assembly-${step.id}` : "#assembly";
+  }
+  if (mode === "parts") {
+    return view_state.selected_id ? `#parts-${view_state.selected_id}` : "#parts";
+  }
+  if (mission.remote) return "#remote";
+  const phase = mission.data?.phases[mission.phase_index];
+  return phase ? `#mission-${phase.id}` : "#mission";
+}
+
+// 画面を切り替えたあとに呼ぶ：アドレスバーの URL を、いまの画面に合わせる
+function update_location_hash() {
+  if (!location_hash_ready) return;
+  const hash = current_location_hash();
+  if (location.hash === hash) return;
+  try {
+    history.replaceState(null, "", hash);
+  } catch (err) {
+    // 書き換えられない開き方（一部のプレビューなど）のときは、URL はそのままにする
+  }
+}
+
+// 「#…」を読み、見せる画面を返す。読めなければ null
+function parse_location_hash(hash) {
+  let text;
+  try {
+    text = decodeURIComponent(hash.replace(/^#/, ""));
+  } catch (err) {
+    return null;   // 「%」の書き方がおかしい
+  }
+  if (text === "remote") return { mode: "mission", remote: true };
+  const match = text.match(/^(assembly|mission|parts)(?:-(.+))?$/);
+  if (!match) return null;
+  const [, mode, id] = match;
+  if (mode === "assembly") {
+    const index = view_state.steps.findIndex((step) => step.id === id);
+    return { mode, step_index: Math.max(0, index) };   // ない手順なら最初の手順
+  }
+  if (mode === "mission") {
+    const index = mission.data.phases.findIndex((phase) => phase.id === id);
+    return { mode, phase_index: Math.max(0, index) };   // ないフェーズなら最初のフェーズ
+  }
+  return { mode, part_id: find_part(id) ? id : null };   // ない部品なら、選ばずに一覧だけ
+}
+
+// URL の「#…」の画面を出す。出せたら true
+function apply_location_hash() {
+  const target = parse_location_hash(location.hash);
+  if (!target) return false;
+  if (target.mode === "assembly") {
+    view_state.step_index = target.step_index;
+    set_mode("assembly");   // おすすめの視点から、その手順を見せる
+  } else if (target.mode === "parts") {
+    set_mode("parts");
+    select_part(target.part_id);
+  } else {
+    if (!target.remote) mission.phase_index = target.phase_index;
+    set_mode("mission");
+    if (target.remote) set_remote(true);
+  }
+  return true;
+}
+
+// 「この画面のリンクをコピー」ボタン
+function setup_copy_link() {
+  const button = $("btn_copy_link");
+  const done_el = $("copy_link_done");
+  let hide_timer = 0;
+  button.addEventListener("click", async () => {
+    update_location_hash();
+    const url = location.href;
+    let ok = true;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (err) {
+      ok = copy_text_fallback(url);   // 古いブラウザ・https でない開き方のとき
+    }
+    done_el.textContent = ok ? "リンクをコピーしました" : "コピーできませんでした（アドレスバーの URL を使ってください）";
+    clearTimeout(hide_timer);
+    hide_timer = setTimeout(() => { done_el.textContent = ""; }, COPY_DONE_SHOW_MS);
+  });
+}
+
+// navigator.clipboard が使えないときのコピー（見えない入力欄に入れて、選んでコピーする）
+function copy_text_fallback(text) {
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.opacity = "0";
+  document.body.appendChild(field);
+  field.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch (err) {
+    ok = false;
+  }
+  field.remove();
+  return ok;
+}
+
 async function main() {
   new ResizeObserver(resize_renderer).observe(viewport_el);
   resize_renderer();
@@ -2945,7 +3199,16 @@ async function main() {
   setup_pointer_events();
   setup_keyboard();
   await setup_view_cube();
-  set_mode(view_state.mode);
+  setup_copy_link();
+  // URL に「#手順・フェーズ・部品」があればその画面、なければ最初の画面（#16）
+  if (!apply_location_hash()) set_mode(view_state.mode);
+  location_hash_ready = true;
+  update_location_hash();
+  // 開いたあとに URL の「#…」を書き換えた・リンクを押したときも、その画面へ移る
+  //   読めない書き方のときは画面を変えず、URL をいまの画面の書き方に直す
+  window.addEventListener("hashchange", () => {
+    if (!apply_location_hash()) update_location_hash();
+  });
 
   // エラーがなければ読み込み表示を消す（エラーがあれば残して読めるようにする）
   if (loading_errors_el.children.length === 0) {

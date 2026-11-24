@@ -504,8 +504,30 @@ button { font-family: inherit; }
   color: var(--accent);
   font-size: 14px;
   cursor: pointer;
+  /* 長押しで動かすので（#15）、文字の選択・スマホのメニュー・ダブルタップの拡大・スクロールを起こさない */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
 }
 .drive_buttons button[data-move="stop"] { grid-column: 1 / -1; }
+/* キーボードの操作の案内（PCだけ。スマホの幅ではキーボードがないので隠す）
+   タッチパネル付きのPCでは (hover: none) が当てはまってしまうので、画面の幅で分ける */
+.drive_keys_hint kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 4px;
+  border: 1px solid var(--line, #c9d2dd);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+@media (max-width: 720px) {
+  .drive_keys_hint { display: none; }
+}
 .drive_buttons button.active { background: var(--accent); color: #fff; }
 
 /* 写真の拡大表示 */
@@ -632,6 +654,32 @@ button { font-family: inherit; }
 }
 .ext_link:hover { background: rgba(255, 255, 255, 0.08); color: var(--gold); }
 .ext_link:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+/* 「この画面のリンクをコピー」ボタン（#16）。a と見た目をそろえる */
+button.ext_link {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+/* コピーしたら、ボタンの下に「コピーしました」を少しの間だけ出す */
+.copy_link_done {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #11233b;
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.copy_link_done:not(:empty) { opacity: 1; }
 
 /* スマホ：帯が狭いので、すき間とアイコンの幅を詰める */
 @media (max-width: 720px) {
