@@ -1317,6 +1317,7 @@ function build_guidance_props(guidance, props) {
   cone.position.set(goal[0], goal[1], GROUND_Z_MM + guidance.cone.height / 2);
   cone.castShadow = true;
   props.goal_group.add(cone);
+  props.goal_cone = cone;   // 機体のカメラの小窓で、コーンが見えているかを調べるのに使う
 
   // ゴールから3mの円（点線）
   const ring_points = [];
@@ -2739,6 +2740,136 @@ function setup_controls() {
 // 描画
 // =============================================================
 
+// ---------------------------------------------------------------
+// 機体のカメラ（XIAO ESP32S3 Sense）から見た景色を、左上の小窓に描く（カメラ誘導・遠隔操作のとき）
+//   レンズの位置に2台目のカメラを置き、前（−y）を向ける。画角は mission.json の camera_fov_deg（横の角度）。
+//   機体の子にするので、走る・曲がる・転倒するときも一緒に動く。
+//   コーンがカメラに映っていて、見える距離（camera_range_mm）以内なら、小窓の中のコーンに枠を付ける
+// ---------------------------------------------------------------
+const ONBOARD_ASPECT = 4 / 3;        // カメラの画像の縦横比（OV2640。style.css の .onboard_screen と同じ）
+const ONBOARD_NEAR_MM = 5;           // これより近い物は映さない（機体の部品が映り込まないように）
+const ONBOARD_FAR_MM = 30000;        // これより遠い物は映さない
+const ONBOARD_LENS_AHEAD_MM = 2;     // レンズの先より少し前にカメラを置く（ケースの中が映らないように）
+const CONE_OUTLINE_POINTS = 12;      // コーンの底の円を、何点で囲んで枠を求めるか
+const CONE_BOX_MARGIN = 0.04;        // コーンの枠を少し大きくする量（小窓の幅に対する割合）
+
+const onboard_view_el = $("onboard_view");
+const onboard_screen_el = $("onboard_screen");
+const onboard_box_el = $("onboard_box");
+const onboard_label_el = $("onboard_label");
+const onboard_status_el = $("onboard_status");
+const onboard_camera = new THREE.PerspectiveCamera(45, ONBOARD_ASPECT, ONBOARD_NEAR_MM, ONBOARD_FAR_MM);
+let onboard_ready = false;
+
+// 機体の部品とミッションのデータがそろってから、レンズの位置と向き・画角を決める
+function setup_onboard_camera() {
+  const config = mission.data.guidance;
+  // 横の画角から、縦の画角を求める（PerspectiveCamera の fov は縦の角度）
+  const half_horizontal = THREE.MathUtils.degToRad(config.camera_fov_deg / 2);
+  onboard_camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(half_horizontal) / ONBOARD_ASPECT));
+  onboard_camera.updateProjectionMatrix();
+
+  // レンズの高さは、カメラの部品の中心の高さにする（レンズは前を水平に向いている、と仮定）
+  const camera_part = view_state.meshes.find((mesh) => mesh.userData.part_id === "camera_module");
+  const lens = new THREE.Vector3(
+    CAMERA_LENS_POSITION[0],
+    CAMERA_LENS_POSITION[1] - ONBOARD_LENS_AHEAD_MM,
+    camera_part ? camera_part.userData.center.z : 0,
+  );
+  // 機体の中（CAD座標）で、前（−y）を向き、上が +z になる向きにする
+  const look = new THREE.Matrix4().lookAt(lens, lens.clone().add(new THREE.Vector3(0, -1, 0)), new THREE.Vector3(0, 0, 1));
+  onboard_camera.position.copy(lens);
+  onboard_camera.quaternion.setFromRotationMatrix(look);
+  vehicle.add(onboard_camera);
+  onboard_ready = true;
+}
+
+// 小窓を出す場面か：ミッションモードの、カメラ誘導のフェーズか遠隔操作
+function onboard_view_wanted() {
+  if (!onboard_ready || view_state.mode !== "mission" || !mission.data) return false;
+  return mission.remote || mission.data.phases[mission.phase_index].action === "camera_guidance";
+}
+
+function render_onboard_view() {
+  const show = onboard_view_wanted();
+  onboard_view_el.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  // 小窓の枠の内側が、3Dの画面のどこにあるか（WebGL は下から上へ数えるので、上下を入れかえる）
+  const canvas_rect = renderer.domElement.getBoundingClientRect();
+  const screen_rect = onboard_screen_el.getBoundingClientRect();
+  const x = screen_rect.left + onboard_screen_el.clientLeft - canvas_rect.left;
+  const top = screen_rect.top + onboard_screen_el.clientTop - canvas_rect.top;
+  const width = onboard_screen_el.clientWidth;
+  const height = onboard_screen_el.clientHeight;
+  const y = canvas_rect.height - top - height;
+
+  // 地面の扇形（見える範囲）は、カメラから見ると邪魔なので隠す。
+  // 影はメインの画面を描いたときに計算済みなので、もう一度は計算しない（重くしないため）
+  const fan = mission.props.camera_fan;
+  const fan_visible = fan.visible;
+  fan.visible = false;
+  renderer.shadowMap.autoUpdate = false;
+  renderer.setScissorTest(true);
+  renderer.setScissor(x, y, width, height);
+  renderer.setViewport(x, y, width, height);
+  renderer.render(scene, onboard_camera);
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, canvas_rect.width, canvas_rect.height);
+  renderer.shadowMap.autoUpdate = true;
+  fan.visible = fan_visible;
+
+  update_onboard_cone_box();
+}
+
+// コーンが映っているか調べ、映っていれば小窓の中のコーンに枠を付ける
+const cone_point = new THREE.Vector3();
+function update_onboard_cone_box() {
+  const cone = mission.props.goal_cone;
+  const config = mission.data.guidance;
+  const radius = config.cone.radius;
+  const half_height = config.cone.height / 2;
+
+  // コーンの底の円の点と、てっぺんを、小窓の中の位置（-1〜1）に直す
+  let min_x = Infinity, max_x = -Infinity, min_y = Infinity, max_y = -Infinity;
+  let in_view = false;
+  const add_point = (local) => {
+    cone_point.copy(local);
+    cone.localToWorld(cone_point);
+    cone_point.project(onboard_camera);
+    if (cone_point.z < -1 || cone_point.z > 1) return;   // カメラの後ろ・遠すぎる点は使わない
+    if (Math.abs(cone_point.x) <= 1 && Math.abs(cone_point.y) <= 1) in_view = true;
+    min_x = Math.min(min_x, cone_point.x); max_x = Math.max(max_x, cone_point.x);
+    min_y = Math.min(min_y, cone_point.y); max_y = Math.max(max_y, cone_point.y);
+  };
+  for (let i = 0; i < CONE_OUTLINE_POINTS; i++) {
+    const angle = (2 * Math.PI * i) / CONE_OUTLINE_POINTS;
+    add_point(new THREE.Vector3(radius * Math.cos(angle), radius * Math.sin(angle), -half_height));
+  }
+  add_point(new THREE.Vector3(0, 0, half_height));
+
+  // 見える距離（camera_range_mm）より遠いと、映っていても「見つけた」にはしない
+  const lens_world = onboard_camera.getWorldPosition(new THREE.Vector3());
+  const cone_world = cone.getWorldPosition(new THREE.Vector3());
+  const found = in_view && lens_world.distanceTo(cone_world) <= config.camera_range_mm;
+
+  onboard_box_el.classList.toggle("hidden", !found);
+  if (found) {
+    // -1〜1 の位置を、小窓の左上からの割合（%）に直す（y は上がプラスなので入れかえる）
+    const left = THREE.MathUtils.clamp((min_x + 1) / 2 - CONE_BOX_MARGIN, 0, 1);
+    const right = THREE.MathUtils.clamp((max_x + 1) / 2 + CONE_BOX_MARGIN, 0, 1);
+    const box_top = THREE.MathUtils.clamp((1 - max_y) / 2 - CONE_BOX_MARGIN, 0, 1);
+    const bottom = THREE.MathUtils.clamp((1 - min_y) / 2 + CONE_BOX_MARGIN, 0, 1);
+    onboard_box_el.style.left = `${left * 100}%`;
+    onboard_box_el.style.top = `${box_top * 100}%`;
+    onboard_box_el.style.width = `${(right - left) * 100}%`;
+    onboard_box_el.style.height = `${(bottom - box_top) * 100}%`;
+  }
+  const text = found ? "コーンを見つけた" : "コーンを探しています";
+  if (onboard_status_el.textContent !== text) onboard_status_el.textContent = text;
+  onboard_label_el.classList.toggle("found", found);
+}
+
 // 画面の大きさが変わったら描画サイズを合わせる
 function resize_renderer() {
   const width = viewport_el.clientWidth;
@@ -2763,6 +2894,7 @@ function animate() {
   if (!view_cube || !view_cube.is_moving()) controls.update(dt);
   update_tooltip();
   renderer.render(scene, camera);
+  render_onboard_view();   // 左上の小窓（機体のカメラの景色）。出さない場面では何もしない
   if (view_cube) view_cube.update(dt);   // 右上の立方体（メインのカメラと同じ向きで描く）
 }
 
@@ -2807,6 +2939,7 @@ async function main() {
   // ミッションモードの準備（仮の形は、機体の大きさを測ったあとに作る）
   mission.data = mission_data;
   mission.props = build_mission_props(mission_data);
+  setup_onboard_camera();   // 機体のカメラ（小窓）：部品とミッションのデータがそろってから
 
   setup_controls();
   setup_pointer_events();

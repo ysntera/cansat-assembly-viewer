@@ -654,3 +654,45 @@ button { font-family: inherit; }
   }
   .mode { white-space: nowrap; }
 }
+
+/* =============================================================
+   左上の小窓：機体のカメラから見た景色（カメラ誘導・遠隔操作）
+   枠の中は透明で、映像は main.js が3Dの画面の同じ位置に描く
+   ============================================================= */
+.onboard_view {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  width: 240px;
+  z-index: 2;
+  pointer-events: none;   /* 小窓の上でも、3Dの画面を回せるようにする */
+}
+.onboard_screen {
+  position: relative;
+  aspect-ratio: 4 / 3;    /* カメラ（OV2640）の画像と同じ縦横比 */
+  border: 2px solid var(--navy);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+/* コーンを見つけたときの枠 */
+.onboard_box {
+  position: absolute;
+  border: 2px solid #22e36b;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.onboard_label {
+  display: inline-block;
+  margin: 4px 0 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(7, 25, 35, 0.78);
+  color: #fff;
+  font-size: 12px;
+}
+.onboard_label.found { color: #7dffad; }
+
+@media (max-width: 720px) {
+  .onboard_view { top: 8px; left: 8px; width: 132px; }
+  .onboard_label { font-size: 11px; padding: 1px 6px; white-space: nowrap; }
+  .onboard_label_head { display: none; }   /* 狭いので「機体のカメラ：」を省く */
+}
